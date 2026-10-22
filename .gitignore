@@ -8,4 +8,8 @@ __pycache__/
 build/
 dist/
 outputs/
+knowledge/
+*.db
+*.db-shm
+*.db-wal
 .DS_Store

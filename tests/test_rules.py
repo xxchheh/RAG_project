@@ -1,13 +1,28 @@
 import copy
 import math
+import os
+import tempfile
 import unittest
 from collections import Counter
+from pathlib import Path
+from unittest.mock import patch
 
+from diagnostic_agent.common import ROOT
 from diagnostic_agent.data import get_data, sample_catalog, sample_features
 from diagnostic_agent.rules import analyze, evaluate_condition, load_rules, metric_value
 
 
 class RuleTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {
+            'DIAGNOSTIC_KNOWLEDGE_DB': str(Path(temporary.name) / 'knowledge.db'),
+            'DIAGNOSTIC_DEVICE_CATALOG': str(ROOT / 'config' / 'devices.json'),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_all_sixteen_rules_have_positive_samples(self):
         rules = load_rules()['rules']
         self.assertEqual(Counter(r['device_type'] for r in rules), {'motor': 4, 'coupling': 1, 'pump': 5, 'fan': 5, 'gearbox': 1})

@@ -9,11 +9,12 @@ from uuid import uuid4
 from .agent import Agent
 from .common import DemoError, write_json
 from .data import DEMO_DATE, TYPES, sample_catalog
-from .model import ChatModel, ModelConfig
+from .model import ChatModel, ModelConfig, load_dotenv
 from .tools import ToolRuntime
+from .knowledge_cli import add_knowledge_parser, execute_knowledge
 
 PROGRESS = {'search_devices': '查找设备', 'get_device_data': '读取模拟数据',
-            'analyze_device': '执行机理分析', 'generate_report': '生成并校验 Word 报告'}
+            'analyze_device': '执行机理分析', 'generate_report': '生成并校验 Word 报告', 'search_knowledge': '查询已发布机理知识'}
 
 
 def build_agent(output):
@@ -76,6 +77,7 @@ def live_smoke(output):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='设备诊断 Agent Demo（全部数据均为模拟）')
     sub = parser.add_subparsers(dest='command', required=True)
+    add_knowledge_parser(sub)
     chat = sub.add_parser('chat', help='启动真实模型终端连续对话')
     chat.add_argument('--output', default='outputs/chat-' + uuid4().hex[:8])
     ask = sub.add_parser('ask', help='用真实模型完成一条自然语言请求')
@@ -91,7 +93,10 @@ def main(argv=None):
     smoke.add_argument('--output', default='outputs/live-' + uuid4().hex[:8])
     args = parser.parse_args(argv)
     try:
-        if args.command == 'devices':
+        load_dotenv()
+        if args.command == 'knowledge':
+            return execute_knowledge(args)
+        elif args.command == 'devices':
             for d in sample_catalog():
                 print(d['id'], TYPES[d['device_type']], d['name'], d['location'], ','.join(p['id'] for p in d['points']))
         elif args.command == 'check-config':

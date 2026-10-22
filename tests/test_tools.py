@@ -1,14 +1,26 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from diagnostic_agent.common import DemoError
+from diagnostic_agent.common import DemoError, ROOT
 from diagnostic_agent.data import get_data, search_devices
 from diagnostic_agent.tools import ToolRuntime, validate_arguments, compute_trends, scan_window
 
 
 class ToolTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {
+            'DIAGNOSTIC_KNOWLEDGE_DB': str(Path(temporary.name) / 'knowledge.db'),
+            'DIAGNOSTIC_DEVICE_CATALOG': str(ROOT / 'config' / 'devices.json'),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_search_ambiguity_and_unknown(self):
         self.assertEqual(search_devices('16号机器 行走电机')['count'], 1)
         self.assertEqual(search_devices('循环水泵')['count'], 2)

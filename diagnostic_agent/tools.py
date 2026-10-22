@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from .common import DemoError, now, write_json
 from .data import get_data, search_devices, public_device, date_value
-from .rules import analyze, metric_value, METRICS
+from .rules import analyze, metric_value, METRICS, load_rules
 
 
 def schema(name, description, properties, required):
@@ -26,6 +26,8 @@ TOOL_SCHEMAS = [
            {'dataset_id': STRING}, ['dataset_id']),
     schema('generate_report', '使用已有analysis_id生成Word报告和分析JSON；只有返回成功文件路径才算生成报告。',
            {'analysis_id': STRING}, ['analysis_id']),
+    schema('search_knowledge', '查询已发布且启用的机理知识。使用简短关键词，多个词以空格分隔。用于一般原理/措施问答；不能代替设备数据分析。',
+           {'query': STRING, 'device_type': STRING}, ['query']),
 ]
 
 
@@ -45,6 +47,8 @@ def validate_arguments(name, args):
             raise DemoError(f'{key} 必须为有效字符串')
         if rule['type'] == 'integer' and (isinstance(value, bool) or not isinstance(value, int) or not rule['minimum'] <= value <= rule['maximum']):
             raise DemoError(f'{key} 必须为 {rule["minimum"]} 到 {rule["maximum"]} 的整数')
+        if key == 'device_type' and value not in ('motor', 'pump', 'fan', 'coupling', 'gearbox'):
+            raise DemoError('知识查询的device_type不受支持')
 
 
 def numeric_series(history, key):
@@ -77,11 +81,13 @@ def compute_trends(dataset):
     return result
 
 
-def scan_window(dataset):
+def scan_window(dataset, rule_snapshot=None):
     """Keep past rule hits even if the latest snapshot no longer matches."""
     hits = {}
+    if rule_snapshot is None:
+        rule_snapshot = load_rules(device_type=dataset['device']['device_type'])
     for entry in dataset['history']:
-        result = analyze(entry['features'], dataset['device']['device_type'])
+        result = analyze(entry['features'], dataset['device']['device_type'], rule_snapshot=rule_snapshot)
         for rule in result['rules']:
             if rule['status'] != 'matched':
                 continue
@@ -95,10 +101,14 @@ def scan_window(dataset):
 
 
 class ToolRuntime:
-    def __init__(self, output_dir='outputs', model=None):
+    def __init__(self, output_dir='outputs', model=None, knowledge_store=None):
         self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model = model
+        if knowledge_store is None:
+            from .knowledge import KnowledgeStore
+            knowledge_store = KnowledgeStore()
+        self.knowledge_store = knowledge_store
         self.datasets = {}
         self.analyses = {}
         self.reports = []
@@ -126,6 +136,10 @@ class ToolRuntime:
     def search_devices(self, query):
         return search_devices(query)
 
+    def search_knowledge(self, query, device_type=None):
+        return {'items': self.knowledge_store.search(query, device_type=device_type),
+                'note': '以下为已发布知识说明，不代表已观测到设备故障。设备诊断仍需读取数据并执行全部适用规则。'}
+
     def get_device_data(self, **kwargs):
         data = get_data(**kwargs)
         key = 'data-' + uuid4().hex[:12]
@@ -141,13 +155,14 @@ class ToolRuntime:
         if dataset_id not in self.datasets:
             raise DemoError('dataset_id 不存在或会话已清空，请重新获取数据')
         dataset = copy.deepcopy(self.datasets[dataset_id])
-        result = analyze(dataset['features'], dataset['device']['device_type'])
+        snapshot = load_rules(store=self.knowledge_store, device_type=dataset['device']['device_type'])
+        result = analyze(dataset['features'], dataset['device']['device_type'], rule_snapshot=snapshot)
         key = 'analysis-' + uuid4().hex[:12]
         result.update(analysis_id=key, dataset_id=dataset_id, analyzed_at=now(), is_simulated=True,
                       device=dataset['device'], point=dataset['point'], actual_range=dataset['actual_range'],
                       requested_range=dataset['requested_range'], trends=compute_trends(dataset),
                       previous_requested_range=dataset['previous_requested_range'],
-                      latest_sample_date=dataset['history'][-1]['date'], window_rule_hits=scan_window(dataset))
+                      latest_sample_date=dataset['history'][-1]['date'], window_rule_hits=scan_window(dataset, rule_snapshot=snapshot))
         self.analyses[key] = result
         # Exclude full trend series from model context while keeping exact calculated summaries.
         output = copy.deepcopy(result)

@@ -24,8 +24,12 @@ DERIVED = {
 }
 
 
-def load_rules():
-    return read_json(ROOT / "config/rules.json")
+def load_rules(store=None, device_type=None):
+    # Local import keeps the executable metric registry independent of storage.
+    if store is None:
+        from .knowledge import KnowledgeStore
+        store = KnowledgeStore()
+    return store.snapshot(device_type=device_type)
 
 
 def metric_value(features, key):
@@ -78,8 +82,8 @@ def leaves(result):
     return [result]
 
 
-def analyze(features, device_type):
-    config = load_rules()
+def analyze(features, device_type, rule_snapshot=None):
+    config = rule_snapshot if rule_snapshot is not None else load_rules(device_type=device_type)
     results = []
     for rule in config["rules"]:
         if rule["device_type"] != device_type:
@@ -100,4 +104,7 @@ def analyze(features, device_type):
     }[status]
     return {"status": status, "summary": summary, "rules": results, "issues": issues,
             "matched_rule_ids": [r["id"] for r in matches],
-            "rule_version": config["version"], "conventions": config["conventions"], "source": config["source"]}
+            "rule_version": config["version"], "conventions": config["conventions"], "source": config["source"],
+            "rule_snapshot_id": config.get('snapshot_id', config['version']),
+            "rule_revisions": {r['id']: r.get('revision', 1) for r in config['rules'] if r['device_type'] == device_type},
+            "rule_sources": config.get('sources', [])}

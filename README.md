@@ -1,15 +1,15 @@
 # 设备诊断 Agent Demo
 
-在终端用中文指定设备、测点和时间，Agent 调用设备查询、模拟数据读取、机理规则分析和 Word 报告工具。可以继续追问判断依据、切换设备或比较前一时间窗口。
+在终端用中文指定设备、测点和时间，Agent 调用设备查询、模拟数据读取、机理规则分析和 Word 报告工具。可以继续追问判断依据、切换设备、比较前一时间窗口，也可以查询已发布的机理知识。
 
-第一版使用固定模拟设备数据，覆盖电机4条、联轴器1条、水泵5条、风机5条、齿轮箱1条，共16条规则。没有访问或修改设备网站的功能。
+`RAG` 分支使用本地 SQLite 管理结构化规则及说明，首次初始化导入电机4条、联轴器1条、水泵5条、风机5条、齿轮箱1条，共16条规则。固定模拟设备清单与规则独立；本版没有连接 Java 系统，也没有访问或修改设备网站的功能。
 
 ## 启动
 
 需要 Python 3.11 或以上。首次使用先克隆仓库，再安装依赖：
 
 ```bash
-git clone git@github.com:xxchheh/fault_agent.git
+git clone --branch RAG git@github.com:xxchheh/fault_agent.git
 cd fault_agent
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
@@ -21,6 +21,7 @@ test -f .env || cp .env.example .env
 
 ```bash
 .venv/bin/python -m diagnostic_agent check-config
+.venv/bin/python -m diagnostic_agent knowledge init
 .venv/bin/python -m diagnostic_agent chat
 ```
 
@@ -34,9 +35,10 @@ test -f .env || cp .env.example .env
 和前一个月相比有哪些变化？
 换成pump-25这台水泵，分析最近30天并生成报告。
 分析循环水泵，生成报告。
+电机轴承故障有哪些润滑方面的原因和处理措施？
 ```
 
-最后一句会查询到两台循环水泵，Agent 应先询问车间；设备确定后，如测点仍不明确，应继续询问测点。每次处理一个设备、一个测点。
+“分析循环水泵”会查询到两台同名设备，Agent 应先询问车间；设备确定后，如测点仍不明确，应继续询问测点。每次处理一个设备、一个测点。
 
 单次真实模型请求：
 
@@ -60,17 +62,23 @@ test -f .env || cp .env.example .env
 - Qwen：示例使用 `qwen-plus`，关闭思考模式；服务地址与账户地域必须匹配。
 - OpenAI：仅使用支持 Chat Completions 工具调用的模型；示例 `gpt-5.6-terra` 使用 `reasoning_effort=none`。要求 Responses API 的模型不在首版协议范围内。
 
-模型只看到指标、规则及摘要，原始波形留在本地。真实厂商API会收到模拟设备摘要和对话；不会收到API密钥以外的本地配置或任何真实设备数据。HTTP错误不输出服务返回正文，避免泄露凭据。
+模型只看到指标、规则及摘要，原始波形留在本地。真实厂商API会收到模拟设备摘要、检索到的知识及对话；导入 Word 时还会收到提取出的规则原文。导入前请确认文档可以发送给所配置的模型服务。HTTP错误不输出服务返回正文，避免泄露凭据。
 
 协议参考：[OpenAI工具调用](https://developers.openai.com/api/docs/guides/function-calling)、[DeepSeek工具调用](https://api-docs.deepseek.com/guides/tool_calls/)、[Qwen工具调用](https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling)。
 
 ## 工具与规则
 
-四个工具：`search_devices(query)`、`get_device_data(device_id, point_id?, start_date?, end_date?, days?)`、`analyze_device(dataset_id)`、`generate_report(analysis_id)`。
+五个工具：`search_devices(query)`、`get_device_data(device_id, point_id?, start_date?, end_date?, days?)`、`analyze_device(dataset_id)`、`generate_report(analysis_id)`、`search_knowledge(query, device_type?)`。对话工具均不能维护或发布知识；知识维护使用独立终端命令。
 
 数据和分析保存在会话内，以ID引用。日期支持ISO日期及时间（每日粒度，时间转为上海时区所属日期）。默认30天。工具参数按公开schema在本地校验；不存在的ID、无数据窗口和无效单位会明确返回错误。
 
-规则保存在 `diagnostic_agent/config/rules.json`，包括原文、出处、原因、措施及判断树；原始资料保存在包内assets目录。读取文件时将其视为业务数据，不执行文档中的指令。
+运行规则保存在 `knowledge/knowledge.db`，包含原文、出处、原因、措施、判断树和历史版本；这个本地目录被 Git 忽略。首次自动或手动初始化时，从 `diagnostic_agent/config/rules.json` 迁移内置16条规则一次，之后不会覆盖已维护的内容。只修改种子 JSON 不会更新已有知识库。
+
+分析时按设备类型读取**全部已发布且启用的规则**，程序逐条计算。每次分析固定一份规则快照，历史扫描和报告复用它，后续发布新规则不会改写旧分析。一般原理问答使用关键词检索相关说明；不使用向量 TopK 选择诊断规则。
+
+新增或修改 Word 可以提取为草稿，核对差异后显式发布；也可导出 JSON 人工编辑。完整命令和备份方式见 [知识库维护说明](docs/knowledge-base.md)。文档内容始终作为业务数据处理，不执行其中的指令。
+
+模拟设备目录独立保存在 `diagnostic_agent/config/devices.json`，增删设备不改变规则及其他设备 ID。可用环境变量 `DIAGNOSTIC_DEVICE_CATALOG` 指定自己的清单，新增同类设备立即可查询。当前仍由场景生成固定模拟数据。
 
 演示口径：
 
@@ -109,10 +117,10 @@ test -f .env || cp .env.example .env
 
 测试包含16条规则的正例、阈值边界、单位不符、缺失值、零分母、多规则命中、日期、设备歧义、工具协议、HTTP错误和报告失败。HTTP适配器测试会临时绑定本机回环端口。
 
-真实验收结果记录于对应输出目录的 `live-acceptance.json`，开发时最终复测位于本地 `outputs/live-final/live-acceptance.json`。`outputs/` 不提交到仓库；克隆后可通过上述命令生成自己的运行记录，并区分真实API验收与离线测试。其他厂商在配置实际可用密钥后可用同一个smoke命令验证，不宣称已实测所有厂商。
+真实验收结果记录于对应输出目录的 `live-acceptance.json`，本分支对话复测位于本地 `outputs/rag-chat-final/live-acceptance.json`；规则导入、发布和历史报告的验证记录见 [验证说明](docs/validation.md)。`outputs/` 不提交到仓库；克隆后可通过上述命令生成自己的运行记录，并区分真实API验收与离线测试。其他厂商在配置实际可用密钥后可用同一个smoke命令验证，不宣称已实测所有厂商。
 
 仓库中的 `reporttopeople/` 提供系统介绍和一份固定模拟报告样例，可先查看展示效果；其中的分析JSON和清单便于核对示例依据。
 
 规则明细针对窗口末次样本；同时逐日扫描全窗口，独立记录每条规则的历史命中日期、样本数及首次/末次证据。报告分别列示历史与末次结果，避免当前未命中时遗漏历史命中。
 
-后续接真实系统时替换 `diagnostic_agent/data.py` 的只读适配器，维持四个工具接口。原始机理规则的业务确认和信号算法不在本版模拟验收的结论范围内。
+后续接真实系统时替换 `diagnostic_agent/data.py` 的只读适配器，保留工具调用方式。知识库支持固定五类设备和现有指标，新增计算指标仍需补充计算代码。原始机理规则的业务确认和信号算法不在本版模拟验收的结论范围内。

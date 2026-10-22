@@ -1,9 +1,12 @@
 import json
+import os
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from diagnostic_agent.agent import Agent
-from diagnostic_agent.common import DemoError
+from diagnostic_agent.common import DemoError, ROOT
 from diagnostic_agent.tools import ToolRuntime
 
 
@@ -23,6 +26,16 @@ class SequenceModel:
 
 
 class AgentTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {
+            'DIAGNOSTIC_KNOWLEDGE_DB': str(Path(temporary.name) / 'knowledge.db'),
+            'DIAGNOSTIC_DEVICE_CATALOG': str(ROOT / 'config' / 'devices.json'),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_unknown_tool_and_bad_json_can_recover(self):
         bad = tool('search_devices', {})
         bad['tool_calls'][0]['function']['arguments'] = '{'
@@ -48,6 +61,45 @@ class AgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as path:
             result = Agent(model, ToolRuntime(path)).turn('生成报告')
             self.assertIn('尚未成功', result)
+
+    def test_explanation_can_reference_an_earlier_successful_report(self):
+        explanation = '已生成的报告中，R001命中：峭度4、低频冲击10、峰值因子5，疑似轴承问题。'
+        for request in ('为什么认为可能是轴承问题？请引用规则编号和实际值。',
+                        '解释一下生成的报告中的R001', '为什么已生成的报告认为可能是轴承问题？'):
+            with self.subTest(request=request), tempfile.TemporaryDirectory() as path:
+                model = SequenceModel([{'role': 'assistant', 'content': explanation}])
+                runtime = ToolRuntime(path)
+                agent = Agent(model, runtime)
+                # Represents a successful generate_report result from an earlier turn.
+                runtime.reports.append({'report_path': str(runtime.output_dir / 'old-report.docx')})
+                result = agent.turn(request)
+                self.assertEqual(result, explanation)
+                self.assertNotIn('本轮已验证生成', result)
+
+    def test_new_report_request_cannot_reuse_an_earlier_success(self):
+        for request in ('请生成新的报告', '帮我导出一份Word报告', '这份报告重新生成一下'):
+            with self.subTest(request=request), tempfile.TemporaryDirectory() as path:
+                model = SequenceModel([{'role': 'assistant', 'content': '报告已生成，可以下载报告。'}])
+                runtime = ToolRuntime(path)
+                agent = Agent(model, runtime)
+                runtime.reports.append({'report_path': str(runtime.output_dir / 'old-report.docx')})
+                self.assertIn('本轮尚未成功', agent.turn(request))
+
+    def test_failed_generation_cannot_be_hidden_by_an_earlier_report(self):
+        model = SequenceModel([tool('generate_report', {'analysis_id': 'nonexistent'}),
+                               {'role': 'assistant', 'content': '报告已生成，可以下载报告。'}])
+        with tempfile.TemporaryDirectory() as path:
+            runtime = ToolRuntime(path)
+            agent = Agent(model, runtime)
+            runtime.reports.append({'report_path': str(runtime.output_dir / 'old-report.docx')})
+            self.assertIn('本轮尚未成功', agent.turn('继续'))
+            result = json.loads(next(m['content'] for m in agent.messages if m['role'] == 'tool'))
+            self.assertFalse(result['ok'])
+
+    def test_followup_without_any_successful_report_still_rejects_false_claim(self):
+        model = SequenceModel([{'role': 'assistant', 'content': '已生成的报告中，R001说明轴承异常。'}])
+        with tempfile.TemporaryDirectory() as path:
+            self.assertIn('尚未成功', Agent(model, ToolRuntime(path)).turn('为什么认为轴承有问题？'))
 
     def test_timeout_and_reset_and_round_limit(self):
         with tempfile.TemporaryDirectory() as path:

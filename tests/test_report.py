@@ -1,12 +1,13 @@
 import copy
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from docx import Document
-from diagnostic_agent.common import DemoError
+from diagnostic_agent.common import DemoError, ROOT
 from diagnostic_agent.report import HEADINGS, narrative_selections, validate_report
 from diagnostic_agent.tools import ToolRuntime
 
@@ -17,6 +18,16 @@ class BadNarrator:
 
 
 class ReportTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {
+            'DIAGNOSTIC_KNOWLEDGE_DB': str(Path(temporary.name) / 'knowledge.db'),
+            'DIAGNOSTIC_DEVICE_CATALOG': str(ROOT / 'config' / 'devices.json'),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def setup_analysis(self, runtime, device='motor-16'):
         data = runtime.get_device_data(device_id=device)
         result = runtime.analyze_device(data['dataset_id'])

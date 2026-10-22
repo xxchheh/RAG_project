@@ -2,18 +2,25 @@
 from __future__ import annotations
 
 import copy
+import json
 import math
+import os
 import re
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
-from .common import DemoError, TZ
-from .rules import METRICS, load_rules
+from .common import DemoError, ROOT, TZ
+from .rules import METRICS
 
 DEMO_DATE = date(2026, 10, 20)
 TYPES = {"motor": "电机", "coupling": "联轴器", "pump": "水泵", "fan": "风机", "gearbox": "齿轮箱"}
+SCENARIOS = {"bearing", "imbalance", "misalignment", "loose", "wear", "cavitation",
+             "not_matched", "missing", "multi", "out_of_range", "zero", "wrong_unit"}
 
 
 def sample_features(kind):
+    if kind not in SCENARIOS:
+        raise DemoError(f"未知模拟场景：{kind}")
     values = {"velocity_rms": 3.2, "acceleration_rms": 2., "acceleration_peak": 6.,
               "kurtosis": 2.7, "low_frequency_impact": 4.,
               **{f"h{i}": .06 for i in range(1, 10)}, "bpf1": .2, "bpf2": .1}
@@ -44,36 +51,52 @@ def sample_features(kind):
     return result
 
 
-def rule_kind(name):
-    return next(kind for suffix, kind in [("故障", "bearing"), ("不平衡", "imbalance"), ("不对中", "misalignment"),
-                                        ("松动", "loose"), ("磨损", "wear"), ("汽蚀", "cavitation")] if name.endswith(suffix))
+def sample_catalog(path=None):
+    """Load the independent device catalog afresh so additions/deletions take effect immediately.
 
-
-def sample_catalog():
-    devices = []
-    for index, rule in enumerate(load_rules()["rules"]):
-        dtype = rule["device_type"]
-        kind = rule_kind(rule["name"])
-        did = "motor-16" if index == 0 else f"{dtype}-{index+16}"
-        name = "行走电机" if index == 0 else f"{TYPES[dtype]}{index+16}号"
-        devices.append({"id": did, "name": name, "device_type": dtype,
-                        "location": f"知源智能/演示工厂/10号产线/{index+16}号机器",
-                        "aliases": [f"{index+16}号机器{TYPES[dtype]}", f"{rule['name']}样例"],
-                        "points": [{"id": "DE-H", "name": "驱动端", "direction": "水平径向", "scenario": kind}],
-                        "target_rule_id": rule["id"], "is_simulated": True})
-    for index, kind in enumerate(["not_matched", "missing", "multi", "out_of_range", "zero", "wrong_unit"]):
-        devices.append({"id": f"motor-edge-{kind}", "name": f"边界电机{index+1}", "device_type": "motor",
-                        "location": "演示工厂/边界场景", "aliases": [kind],
-                        "points": [{"id": "DE-H", "name": "驱动端", "direction": "水平径向", "scenario": kind}],
-                        "is_simulated": True})
-    # Two identical names make clarification behavior observable.
-    for n in (1, 2):
-        devices.append({"id": f"pump-duplicate-{n}", "name": "循环水泵", "device_type": "pump",
-                        "location": f"演示工厂/{n}号车间", "aliases": [f"{n}号车间循环水泵"],
-                        "points": [{"id": "DE-H", "name": "驱动端", "direction": "水平径向", "scenario": "bearing"},
-                                   {"id": "NDE-V", "name": "非驱动端", "direction": "垂直径向", "scenario": "missing"}],
-                        "is_simulated": True})
-    return devices
+    ``target_rule_id`` is retained only as test-fixture metadata; it does not select rules.
+    A real-system adapter can replace this boundary without changing the rule repository.
+    """
+    catalog_path = Path(path or os.environ.get("DIAGNOSTIC_DEVICE_CATALOG") or ROOT / "config" / "devices.json")
+    try:
+        devices = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DemoError(f"无法读取设备目录 {catalog_path}：{exc}") from None
+    if not isinstance(devices, list):
+        raise DemoError("设备目录必须是设备列表")
+    device_ids = set()
+    for index, device in enumerate(devices):
+        label = f"设备目录第 {index + 1} 项"
+        if not isinstance(device, dict):
+            raise DemoError(f"{label}必须是对象")
+        for key in ("id", "name", "device_type", "location"):
+            if not isinstance(device.get(key), str) or not device[key].strip():
+                raise DemoError(f"{label}的 {key} 必须是非空字符串")
+        if device["id"] in device_ids:
+            raise DemoError(f"设备目录存在重复设备 ID：{device['id']}")
+        device_ids.add(device["id"])
+        if device["device_type"] not in TYPES:
+            raise DemoError(f"设备 {device['id']} 使用未知设备类型：{device['device_type']}")
+        aliases = device.get("aliases", [])
+        if not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
+            raise DemoError(f"设备 {device['id']} 的 aliases 必须是字符串列表")
+        device["aliases"] = aliases
+        points = device.get("points")
+        if not isinstance(points, list) or not points:
+            raise DemoError(f"设备 {device['id']} 的 points 必须是非空测点列表")
+        point_ids = set()
+        for point in points:
+            if not isinstance(point, dict):
+                raise DemoError(f"设备 {device['id']} 的测点必须是对象")
+            for key in ("id", "name", "direction", "scenario"):
+                if not isinstance(point.get(key), str) or not point[key].strip():
+                    raise DemoError(f"设备 {device['id']} 的测点 {key} 必须是非空字符串")
+            if point["id"] in point_ids:
+                raise DemoError(f"设备 {device['id']} 存在重复测点 ID：{point['id']}")
+            point_ids.add(point["id"])
+            if point["scenario"] not in SCENARIOS:
+                raise DemoError(f"设备 {device['id']} 测点 {point['id']} 使用未知模拟场景：{point['scenario']}")
+    return copy.deepcopy(devices)
 
 
 def _normalize(text):

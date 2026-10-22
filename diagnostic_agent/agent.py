@@ -15,6 +15,8 @@ SYSTEM = '''你是设备诊断演示Agent，用中文交流。业务目标是根
 最终回答必须引用工具中的数据和结论。没有命中规则不表示正常，缺失指标不当作零，保留所有候选故障。不能自行推导健康等级或停机指令。
 未命中规则不能排除对应故障。源文档列出的机理现象不等于测量观测；没有温度、听诊或包络数据时不能声称已观察到这些现象。峭度和峰值因子本身不能证明周期性冲击。
 对于规则解释、原因和建议，引用分析结果中的规则编号。不要把图谱当作特征值计算来源。不要将模拟样本说成真实现场数据。
+一般机理、原因和措施问题可调用search_knowledge查已发布知识，不需要伪造一个设备；知识查询结果不能作为设备已发生故障的证据。
+设备判断必须通过analyze_device执行全部适用规则，不能用知识搜索结果替代。每次分析固定规则快照，回答及报告引用当时的规则版本，维护知识库只能由本地管理命令完成。
 追问可以复用同一设备同一窗口的已有分析结果；更换设备、测点或时间范围必须重新取数分析。比较上期时使用分析工具计算的前一等长窗口均值、覆盖情况。
 rules和matched_rule_ids只表示latest_sample_date末次样本的判定；window_rule_hits独立列出窗口历史命中。结论应区分末次判定和历史记录，不得遗漏历史命中，也不得将历史命中说成末次命中。
 报告只有generate_report返回ok且含文件路径时才算成功。失败不得声称完成。不得发送、上传文件到外部服务，不得修改设备系统。
@@ -37,6 +39,12 @@ class Agent:
     def turn(self, text):
         self.messages.append({'role': 'user', 'content': text})
         new_reports = len(self.runtime.reports)
+        # An explanatory follow-up may cite an earlier verified report. A new
+        # generation request or attempt still needs a successful file this turn.
+        report_requested = bool(re.search(
+            r'(?<!已)(?:生成|制作|出具|输出|导出|重做|更新|写|做|再来|再出|给我|提供)(?!的).{0,24}(?:报告|report)'
+            r'|(?:报告|report)\s*(?:重新|再)?(?:生成|制作|出具|导出|重做|更新)', text, re.I))
+        report_attempted = False
         try:
             for _ in range(self.max_rounds):
                 message = self.model.complete(self.messages, tools=TOOL_SCHEMAS)
@@ -48,7 +56,8 @@ class Agent:
                     if not isinstance(content, str) or not content.strip():
                         raise DemoError('模型没有返回有效回答')
                     fresh = self.runtime.reports[new_reports:]
-                    if re.search(r'已生成|已完成.{0,8}报告|报告已完成|下载报告', content) and not fresh:
+                    needs_fresh_report = not new_reports or report_requested or report_attempted
+                    if re.search(r'已生成|已完成.{0,8}报告|报告已完成|下载报告', content) and not fresh and needs_fresh_report:
                         content = '本轮尚未成功生成报告。请继续指定设备或重试；不能将模型文字视为已生成文件。'
                     if fresh:
                         content += '\n\n本轮已验证生成的报告：\n' + '\n'.join(r['report_path'] for r in fresh)
@@ -66,6 +75,8 @@ class Agent:
                 for call in calls:
                     function = call.get('function') or {}
                     name = function.get('name', '')
+                    if name == 'generate_report':
+                        report_attempted = True
                     self.progress(name)
                     try:
                         args = json.loads(function.get('arguments', ''))
