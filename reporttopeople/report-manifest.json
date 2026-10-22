@@ -1,0 +1,24 @@
+{
+  "report_id": "analysis-32d79806b952-03f0fa",
+  "analysis_id": "analysis-32d79806b952",
+  "is_simulated": true,
+  "validation": {
+    "structure": true,
+    "source_refs": true,
+    "canonical_values": true,
+    "images": 3
+  },
+  "model_used": true,
+  "source_template_sha256": "3dea2931998ac6034e9f1122aae644e7860e53aa075ebd0fc45a2615b758c402",
+  "narrative_selections": [
+    {
+      "rule_id": "R001",
+      "cause_indices": [
+        0
+      ],
+      "action_indices": [
+        0
+      ]
+    }
+  ]
+}

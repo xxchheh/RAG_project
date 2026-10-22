@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "equipment-diagnostic-agent"
+version = "0.1.0"
+description = "自然语言设备诊断与 Word 报告 Agent Demo"
+requires-python = ">=3.11"
+dependencies = ["python-docx>=1.2,<2", "Pillow>=10,<13"]
+
+[project.scripts]
+diagnostic-agent = "diagnostic_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["diagnostic_agent*"]
+
+[tool.setuptools.package-data]
+diagnostic_agent = ["config/*.json", "assets/*.docx", "assets/*.txt"]
