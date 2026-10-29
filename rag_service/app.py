@@ -9,6 +9,10 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from . import api_contract as wire
 from .config import Settings
 from .contracts import METRICS, DERIVED, DEVICE_TYPES, DERIVED_LABELS
 from .store import Store, StoreError
@@ -57,7 +61,7 @@ class Restore(Publication):
 class Query(Publication):
     query: str = Field(min_length=1, max_length=4000)
     release_id: str | None = None
-    device_type: Literal['motor', 'pump', 'fan', 'coupling', 'gearbox'] | None = None
+    device_type: wire.DeviceType | None = None
     top_k: int = Field(default=5, ge=1, le=50)
 
 
@@ -83,28 +87,45 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
 
     @app.exception_handler(StoreError)
     def store_error(request, error):
-        return JSONResponse({'detail': str(error)}, status_code=error.status)
+        return error_response(error.status, str(error))
 
     @app.exception_handler(ValueError)
     def value_error(request, error):
-        return JSONResponse({'detail': str(error)}, status_code=400)
+        return error_response(400, str(error))
+
+    def error_response(status, detail, headers=None):
+        return JSONResponse({'detail': detail, 'code': wire.ERROR_CODES.get(status, 'INTERNAL_ERROR' if status >= 500 else 'HTTP_ERROR')}, status_code=status, headers=headers)
+
+    @app.exception_handler(StarletteHTTPException)
+    def http_error(request, error):
+        return error_response(error.status_code, error.detail, error.headers)
+
+    @app.exception_handler(RequestValidationError)
+    def invalid_request(request, error):
+        # Do not echo credentials or request bodies in validation errors.
+        details = [{k: jsonable_encoder(v) for k, v in item.items() if k in ('loc', 'msg', 'type')} for item in error.errors()]
+        return error_response(422, details)
+
+    @app.exception_handler(Exception)
+    def unexpected_error(request, error):
+        return error_response(500, '服务内部错误，请联系服务提供方')
 
     prefix = '/api/v1'
     read = [Depends(read_auth)]
     admin = [Depends(admin_auth)]
 
-    @app.get(prefix+'/health')
+    @app.get(prefix+'/health', response_model=wire.Health, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def health():
-        return {'status': 'ok', 'embedding': embedder.profile(), 'rule_schema_version': 'equipment-rules-v1'}
+        return {'status': 'ok', 'embedding': embedder.profile(), 'rule_schema_version': wire.RULE_SCHEMA_VERSION}
 
-    @app.get(prefix+'/capabilities', dependencies=read)
+    @app.get(prefix+'/capabilities', dependencies=read, response_model=wire.Capabilities, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def capabilities():
-        return {'schema_version': 'equipment-rules-v1', 'device_types': {'motor':'电机','pump':'水泵','fan':'风机','coupling':'联轴器','gearbox':'齿轮箱'},
+        return {'schema_version': wire.RULE_SCHEMA_VERSION, 'device_types': {'motor':'电机','pump':'水泵','fan':'风机','coupling':'联轴器','gearbox':'齿轮箱'},
                 'metrics': {k: {'name':v[0], 'unit':v[1]} for k,v in METRICS.items()},
                 'derived': {k: {'name':DERIVED_LABELS[k], 'unit':'1', 'numerators':v[0], 'denominator':v[1], 'formula':'sqrt(sum(numerator**2))/denominator'} for k,v in DERIVED.items()},
                 'operators':['ge','gt','le','lt'], 'groups':['all','any'], 'formats':['md','docx','pdf'], 'executes_diagnosis':False}
 
-    @app.get(prefix+'/knowledge-bases', dependencies=read)
+    @app.get(prefix+'/knowledge-bases', dependencies=read, response_model=list[wire.KnowledgeBase], response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def list_kbs():
         return store.list_kbs()
 
@@ -237,29 +258,29 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
             raise StoreError('知识库不存在或已归档',404)
         return store.release(kb_id, release_id, include_index=True)
 
-    @app.post(prefix+'/retrieve', dependencies=read)
+    @app.post(prefix+'/retrieve', dependencies=read, response_model=wire.Retrieval, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def retrieve(body: Query):
         from .retrieval import retrieve as search
         rel=active_release(body.kb_id,body.release_id)
         hits=search(body.query,rel['entries'],rel['index'],embedder,body.top_k,body.device_type)
         return {'release_id':rel['id'],'kb_id':body.kb_id,'profile':rel['profile'],'items':hits}
 
-    @app.post(prefix+'/answers', dependencies=read)
+    @app.post(prefix+'/answers', dependencies=read, response_model=wire.Answer, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def answers(body: Query):
         from .retrieval import answer_question
         found=retrieve(body)
         result=answer_question(body.query,found['items'],get_model() if found['items'] else None)
         return {**found,**result}
 
-    @app.get(prefix+'/rules', dependencies=read)
+    @app.get(prefix+'/rules', dependencies=read, response_model=wire.Rules, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def rules(kb_id: str, release_id: str | None = None, device_type: str | None = None):
         if device_type is not None and device_type not in DEVICE_TYPES:
             raise StoreError('设备类型不受支持')
         rel=active_release(kb_id,release_id)
         values=[{**e['rule'],'source':e['source'],'knowledge_id':e['id']} for e in rel['entries'] if e['kind']=='rule' and (device_type is None or e.get('device_type')==device_type)]
-        return {'kb_id':kb_id,'release_id':rel['id'],'schema_version':'equipment-rules-v1','rules':values,'count':len(values)}
+        return {'kb_id':kb_id,'release_id':rel['id'],'schema_version':wire.RULE_SCHEMA_VERSION,'rules':values,'count':len(values)}
 
-    @app.get(prefix+'/knowledge/{knowledge_id}', dependencies=read)
+    @app.get(prefix+'/knowledge/{knowledge_id}', dependencies=read, response_model=wire.KnowledgeDetail, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def knowledge(knowledge_id: str, kb_id: str, release_id: str | None = None):
         rel=active_release(kb_id,release_id)
         entry=next((e for e in rel['entries'] if e['id']==knowledge_id),None)

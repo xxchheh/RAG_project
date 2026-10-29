@@ -11,7 +11,9 @@
 
 浏览器打开 **http://127.0.0.1:8000/**，使用管理令牌连接。接口文档在 `/docs`。首次建立索引会下载本地中文模型；对话提取与问答使用已有 `.env`。默认数据独立保存在 `data/rag_work/`。
 
-完整说明见 [独立 RAG 使用与对接](docs/rag_work.md)，上传样本在 [examples/rag_documents](examples/rag_documents)，外部调用示例为 [rag_agent_client.py](examples/rag_agent_client.py)。说明按文档审核、规则逐条审核后分别发布，数值诊断由 Agent 侧执行。
+给 Agent 开发者交付的接口文档见 [Agent 侧接口文档](docs/agent_api.md)。完整说明见 [独立 RAG 使用与对接](docs/rag_work.md)，上传样本在 [examples/rag_documents](examples/rag_documents)，外部调用示例为 [rag_agent_client.py](examples/rag_agent_client.py)。说明按文档审核、规则逐条审核后分别发布，数值诊断由 Agent 侧执行。
+
+后续开发须遵守 [Agent v1 接口兼容约定](docs/api_compatibility.md)；公开输入输出与规则能力由契约测试固定。
 
 以下保留原有终端 Agent 的使用方式；新服务可独立启动。
 

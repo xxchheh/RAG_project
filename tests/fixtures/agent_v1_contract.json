@@ -1,0 +1,2080 @@
+{
+  "capabilities": {
+    "derived": {
+      "bpf_ratio": {
+        "denominator": "velocity_rms",
+        "formula": "sqrt(sum(numerator**2))/denominator",
+        "name": "sqrt(BPF1²+BPF2²) / 速度有效值",
+        "numerators": [
+          "bpf1",
+          "bpf2"
+        ],
+        "unit": "1"
+      },
+      "crest_factor": {
+        "denominator": "acceleration_rms",
+        "formula": "sqrt(sum(numerator**2))/denominator",
+        "name": "加速度绝对峰值 / 加速度有效值",
+        "numerators": [
+          "acceleration_peak"
+        ],
+        "unit": "1"
+      },
+      "even_ratio": {
+        "denominator": "velocity_rms",
+        "formula": "sqrt(sum(numerator**2))/denominator",
+        "name": "sqrt(A2²+A4²+A6²+A8²) / 速度有效值",
+        "numerators": [
+          "h2",
+          "h4",
+          "h6",
+          "h8"
+        ],
+        "unit": "1"
+      },
+      "h1_ratio": {
+        "denominator": "velocity_rms",
+        "formula": "sqrt(sum(numerator**2))/denominator",
+        "name": "一倍转频幅值 / 速度有效值",
+        "numerators": [
+          "h1"
+        ],
+        "unit": "1"
+      },
+      "h2_ratio": {
+        "denominator": "velocity_rms",
+        "formula": "sqrt(sum(numerator**2))/denominator",
+        "name": "二倍转频幅值 / 速度有效值",
+        "numerators": [
+          "h2"
+        ],
+        "unit": "1"
+      },
+      "third_ratio": {
+        "denominator": "velocity_rms",
+        "formula": "sqrt(sum(numerator**2))/denominator",
+        "name": "sqrt(A3²+A6²+A9²) / 速度有效值",
+        "numerators": [
+          "h3",
+          "h6",
+          "h9"
+        ],
+        "unit": "1"
+      }
+    },
+    "device_types": {
+      "coupling": "联轴器",
+      "fan": "风机",
+      "gearbox": "齿轮箱",
+      "motor": "电机",
+      "pump": "水泵"
+    },
+    "executes_diagnosis": false,
+    "formats": [
+      "md",
+      "docx",
+      "pdf"
+    ],
+    "groups": [
+      "all",
+      "any"
+    ],
+    "metrics": {
+      "acceleration_peak": {
+        "name": "加速度绝对峰值",
+        "unit": "m/s²"
+      },
+      "acceleration_rms": {
+        "name": "加速度有效值",
+        "unit": "m/s²"
+      },
+      "bpf1": {
+        "name": "一倍叶片通过频率速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "bpf2": {
+        "name": "二倍叶片通过频率速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h1": {
+        "name": "1倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h2": {
+        "name": "2倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h3": {
+        "name": "3倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h4": {
+        "name": "4倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h5": {
+        "name": "5倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h6": {
+        "name": "6倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h7": {
+        "name": "7倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h8": {
+        "name": "8倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "h9": {
+        "name": "9倍转频速度RMS幅值",
+        "unit": "mm/s"
+      },
+      "kurtosis": {
+        "name": "加速度非超额峭度",
+        "unit": "1"
+      },
+      "low_frequency_impact": {
+        "name": "低频冲击值",
+        "unit": "demo_index"
+      },
+      "velocity_rms": {
+        "name": "速度有效值",
+        "unit": "mm/s"
+      }
+    },
+    "operators": [
+      "ge",
+      "gt",
+      "le",
+      "lt"
+    ],
+    "schema_version": "equipment-rules-v1"
+  },
+  "paths": {
+    "/api/v1/answers": {
+      "post": {
+        "operationId": "answers_api_v1_answers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Query"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Answer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Answers"
+      }
+    },
+    "/api/v1/capabilities": {
+      "get": {
+        "operationId": "capabilities_api_v1_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Capabilities"
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/v1/knowledge-bases": {
+      "get": {
+        "operationId": "list_kbs_api_v1_knowledge_bases_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KnowledgeBase"
+                  },
+                  "title": "Response List Kbs Api V1 Knowledge Bases Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Kbs"
+      }
+    },
+    "/api/v1/knowledge/{knowledge_id}": {
+      "get": {
+        "operationId": "knowledge_api_v1_knowledge__knowledge_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "knowledge_id",
+            "required": true,
+            "schema": {
+              "title": "Knowledge Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kb_id",
+            "required": true,
+            "schema": {
+              "title": "Kb Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "release_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Release Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Knowledge"
+      }
+    },
+    "/api/v1/retrieve": {
+      "post": {
+        "operationId": "retrieve_api_v1_retrieve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Query"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Retrieval"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retrieve"
+      }
+    },
+    "/api/v1/rules": {
+      "get": {
+        "operationId": "rules_api_v1_rules_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kb_id",
+            "required": true,
+            "schema": {
+              "title": "Kb Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "release_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Release Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rules"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rules"
+      }
+    }
+  },
+  "schemas": {
+    "AllCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Leaf"
+              },
+              {
+                "$ref": "#/components/schemas/AllCondition"
+              },
+              {
+                "$ref": "#/components/schemas/AnyCondition"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "All",
+          "type": "array"
+        }
+      },
+      "required": [
+        "all"
+      ],
+      "title": "AllCondition",
+      "type": "object"
+    },
+    "Answer": {
+      "properties": {
+        "answer": {
+          "title": "Answer",
+          "type": "string"
+        },
+        "citations": {
+          "items": {
+            "$ref": "#/components/schemas/Citation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/Hit"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "kb_id": {
+          "title": "Kb Id",
+          "type": "string"
+        },
+        "profile": {
+          "additionalProperties": true,
+          "title": "Profile",
+          "type": "object"
+        },
+        "release_id": {
+          "title": "Release Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "answered",
+            "insufficient_evidence"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kb_id",
+        "release_id",
+        "profile",
+        "items",
+        "status",
+        "answer",
+        "citations"
+      ],
+      "title": "Answer",
+      "type": "object"
+    },
+    "AnyCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "any": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Leaf"
+              },
+              {
+                "$ref": "#/components/schemas/AllCondition"
+              },
+              {
+                "$ref": "#/components/schemas/AnyCondition"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Any",
+          "type": "array"
+        }
+      },
+      "required": [
+        "any"
+      ],
+      "title": "AnyCondition",
+      "type": "object"
+    },
+    "ApplicableRule": {
+      "properties": {
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "block_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Block Ids"
+        },
+        "causes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Causes",
+          "type": "array"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/Leaf"
+            },
+            {
+              "$ref": "#/components/schemas/AllCondition"
+            },
+            {
+              "$ref": "#/components/schemas/AnyCondition"
+            }
+          ],
+          "title": "Condition"
+        },
+        "device_type": {
+          "enum": [
+            "motor",
+            "pump",
+            "fan",
+            "coupling",
+            "gearbox"
+          ],
+          "title": "Device Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "knowledge_id": {
+          "title": "Knowledge Id",
+          "type": "string"
+        },
+        "knowledge_revision": {
+          "title": "Knowledge Revision",
+          "type": "integer"
+        },
+        "legacy_source": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Legacy Source"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "original_text": {
+          "title": "Original Text",
+          "type": "string"
+        },
+        "phenomena": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Phenomena",
+          "type": "array"
+        },
+        "retired": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired"
+        },
+        "review_notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Notes",
+          "type": "array"
+        },
+        "review_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Status"
+        },
+        "source": {
+          "$ref": "#/components/schemas/Source"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Locator"
+        },
+        "source_section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Section"
+        },
+        "units": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Units",
+          "type": "object"
+        },
+        "valid": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Valid"
+        },
+        "validation_errors": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Validation Errors"
+        }
+      },
+      "required": [
+        "id",
+        "knowledge_revision",
+        "name",
+        "device_type",
+        "original_text",
+        "condition",
+        "units",
+        "phenomena",
+        "causes",
+        "actions",
+        "notes",
+        "review_notes",
+        "source",
+        "knowledge_id"
+      ],
+      "title": "ApplicableRule",
+      "type": "object"
+    },
+    "Capabilities": {
+      "properties": {
+        "derived": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/DerivedMetric"
+          },
+          "title": "Derived",
+          "type": "object"
+        },
+        "device_types": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Device Types",
+          "type": "object"
+        },
+        "executes_diagnosis": {
+          "const": false,
+          "title": "Executes Diagnosis",
+          "type": "boolean"
+        },
+        "formats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Formats",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/Metric"
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "operators": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Operators",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "equipment-rules-v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "device_types",
+        "metrics",
+        "derived",
+        "operators",
+        "groups",
+        "formats",
+        "executes_diagnosis"
+      ],
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "Citation": {
+      "properties": {
+        "knowledge_id": {
+          "title": "Knowledge Id",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/components/schemas/Source"
+        }
+      },
+      "required": [
+        "knowledge_id",
+        "quote",
+        "source"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "DerivedMetric": {
+      "properties": {
+        "denominator": {
+          "title": "Denominator",
+          "type": "string"
+        },
+        "formula": {
+          "title": "Formula",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "numerators": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Numerators",
+          "type": "array"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit",
+        "numerators",
+        "denominator",
+        "formula"
+      ],
+      "title": "DerivedMetric",
+      "type": "object"
+    },
+    "Error": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Detail"
+        }
+      },
+      "required": [
+        "detail",
+        "code"
+      ],
+      "title": "Error",
+      "type": "object"
+    },
+    "Health": {
+      "properties": {
+        "embedding": {
+          "additionalProperties": true,
+          "title": "Embedding",
+          "type": "object"
+        },
+        "rule_schema_version": {
+          "const": "equipment-rules-v1",
+          "title": "Rule Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "embedding",
+        "rule_schema_version"
+      ],
+      "title": "Health",
+      "type": "object"
+    },
+    "Hit": {
+      "properties": {
+        "device_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "motor",
+                "pump",
+                "fan",
+                "coupling",
+                "gearbox"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Device Type"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "keyword_score": {
+          "title": "Keyword Score",
+          "type": "number"
+        },
+        "kind": {
+          "enum": [
+            "description",
+            "rule"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "knowledge_revision": {
+          "title": "Knowledge Revision",
+          "type": "integer"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/Rule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "semantic_score": {
+          "title": "Semantic Score",
+          "type": "number"
+        },
+        "source": {
+          "$ref": "#/components/schemas/Source"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "knowledge_revision",
+        "source",
+        "semantic_score",
+        "keyword_score",
+        "score"
+      ],
+      "title": "Hit",
+      "type": "object"
+    },
+    "Knowledge": {
+      "properties": {
+        "device_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "motor",
+                "pump",
+                "fan",
+                "coupling",
+                "gearbox"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Device Type"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "description",
+            "rule"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "knowledge_revision": {
+          "title": "Knowledge Revision",
+          "type": "integer"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/Rule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/components/schemas/Source"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "knowledge_revision",
+        "source"
+      ],
+      "title": "Knowledge",
+      "type": "object"
+    },
+    "KnowledgeBase": {
+      "properties": {
+        "archived": {
+          "title": "Archived",
+          "type": "integer"
+        },
+        "current_release": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Release"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "state_version": {
+          "title": "State Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "archived",
+        "current_release",
+        "state_version"
+      ],
+      "title": "KnowledgeBase",
+      "type": "object"
+    },
+    "KnowledgeDetail": {
+      "properties": {
+        "item": {
+          "$ref": "#/components/schemas/Knowledge"
+        },
+        "release_id": {
+          "title": "Release Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "release_id",
+        "item"
+      ],
+      "title": "KnowledgeDetail",
+      "type": "object"
+    },
+    "Leaf": {
+      "additionalProperties": false,
+      "properties": {
+        "ge": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ge"
+        },
+        "gt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gt"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Label"
+        },
+        "le": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Le"
+        },
+        "lt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lt"
+        },
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metric"
+      ],
+      "title": "Leaf",
+      "type": "object"
+    },
+    "Metric": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Query": {
+      "additionalProperties": false,
+      "properties": {
+        "device_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "motor",
+                "pump",
+                "fan",
+                "coupling",
+                "gearbox"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Device Type"
+        },
+        "kb_id": {
+          "title": "Kb Id",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "release_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Release Id"
+        },
+        "top_k": {
+          "default": 5,
+          "maximum": 50.0,
+          "minimum": 1.0,
+          "title": "Top K",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kb_id",
+        "query"
+      ],
+      "title": "Query",
+      "type": "object"
+    },
+    "Retrieval": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/Hit"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "kb_id": {
+          "title": "Kb Id",
+          "type": "string"
+        },
+        "profile": {
+          "additionalProperties": true,
+          "title": "Profile",
+          "type": "object"
+        },
+        "release_id": {
+          "title": "Release Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kb_id",
+        "release_id",
+        "profile",
+        "items"
+      ],
+      "title": "Retrieval",
+      "type": "object"
+    },
+    "Rule": {
+      "properties": {
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "block_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Block Ids"
+        },
+        "causes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Causes",
+          "type": "array"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/Leaf"
+            },
+            {
+              "$ref": "#/components/schemas/AllCondition"
+            },
+            {
+              "$ref": "#/components/schemas/AnyCondition"
+            }
+          ],
+          "title": "Condition"
+        },
+        "device_type": {
+          "enum": [
+            "motor",
+            "pump",
+            "fan",
+            "coupling",
+            "gearbox"
+          ],
+          "title": "Device Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "knowledge_revision": {
+          "title": "Knowledge Revision",
+          "type": "integer"
+        },
+        "legacy_source": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Legacy Source"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "original_text": {
+          "title": "Original Text",
+          "type": "string"
+        },
+        "phenomena": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Phenomena",
+          "type": "array"
+        },
+        "retired": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired"
+        },
+        "review_notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Notes",
+          "type": "array"
+        },
+        "review_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Status"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Locator"
+        },
+        "source_section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Section"
+        },
+        "units": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Units",
+          "type": "object"
+        },
+        "valid": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Valid"
+        },
+        "validation_errors": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Validation Errors"
+        }
+      },
+      "required": [
+        "id",
+        "knowledge_revision",
+        "name",
+        "device_type",
+        "original_text",
+        "condition",
+        "units",
+        "phenomena",
+        "causes",
+        "actions",
+        "notes",
+        "review_notes"
+      ],
+      "title": "Rule",
+      "type": "object"
+    },
+    "Rules": {
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "kb_id": {
+          "title": "Kb Id",
+          "type": "string"
+        },
+        "release_id": {
+          "title": "Release Id",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/components/schemas/ApplicableRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "equipment-rules-v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kb_id",
+        "release_id",
+        "schema_version",
+        "rules",
+        "count"
+      ],
+      "title": "Rules",
+      "type": "object"
+    },
+    "Source": {
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "document_revision": {
+          "title": "Document Revision",
+          "type": "integer"
+        },
+        "locator": {
+          "title": "Locator",
+          "type": "string"
+        },
+        "original_quote": {
+          "title": "Original Quote",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "document_revision",
+        "title",
+        "sha256",
+        "locator",
+        "original_quote"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  }
+}
