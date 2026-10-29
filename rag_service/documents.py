@@ -418,7 +418,7 @@ def _standard_rules(blocks, model):
     return rules
 
 
-def parse_document(content: bytes, filename: str, model=None, document_type="auto", progress=None) -> dict:
+def parse_document(content: bytes, filename: str, model=None, document_type="auto", progress=None, artifact_root=None) -> dict:
     """Parse bytes into reviewable source blocks and rule proposals.
 
     A successful return means extraction completed, never that content is
@@ -426,7 +426,7 @@ def parse_document(content: bytes, filename: str, model=None, document_type="aut
     """
     if document_type not in ("auto", "rules", "reference"):
         raise ValueError("文档类型必须为auto、rules或reference")
-    if not isinstance(content, bytes) or not content or len(content) > MAX_BYTES:
+    if not isinstance(content, bytes) or not content or len(content) > (100*1024*1024 if artifact_root is not None else MAX_BYTES):
         raise ValueError("文件为空或超过10 MiB限制")
     if not isinstance(filename, str):
         raise ValueError("文件名必须是字符串")
@@ -435,6 +435,15 @@ def parse_document(content: bytes, filename: str, model=None, document_type="aut
     reader = {".md": _markdown, ".docx": _word, ".pdf": _pdf, ".pptx": _pptx}.get(suffix)
     if reader is None:
         raise ValueError("仅支持 .md、.docx、文字型 .pdf 和 .pptx 文件；旧版 .ppt 请先转换为 .pptx")
+    # Explicit rules preserve the deterministic business contract. Textbook
+    # reference input never passes through diagnostic rule extraction.
+    if suffix in ('.pdf', '.pptx') and document_type != 'rules':
+        import os
+        from . import structured_reference
+        engine = os.environ.get('RAG_REFERENCE_ENGINE', 'auto')
+        if engine == 'docling' or (engine == 'auto' and structured_reference.available() and artifact_root is not None):
+            from pathlib import Path
+            return structured_reference.parse(content, filename, artifact_root or Path('data/rag_work/parsed'), progress)
     blocks = reader(content, progress=progress) if suffix in ('.pdf', '.pptx') else reader(content)
     if not blocks or not any(block["text"].strip() for block in blocks):
         raise ValueError("文档中没有可提取的文字；扫描图片需先转换为文字")

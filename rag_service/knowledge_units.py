@@ -22,6 +22,11 @@ def prose_units(blocks, unsafe):
                 for chunk in split_text(text)]
     units = []
     for block in blocks:
+        if block.get('chunk_ready'):
+            units.extend(flush()); group = []
+            if block['id'] not in unsafe and not block.get('excluded'):
+                units.append((block['id'], block['text'], block['locator'], block.get('source_text', block['text'])))
+            continue
         if block.get('page') != page:
             units.extend(flush()); group = []
             page = block.get('page')

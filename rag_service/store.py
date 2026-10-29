@@ -108,8 +108,8 @@ class Store:
     def reserve_upload(self, kb_id, title, content, external_id=None, document_id=None, document_type="auto", force=False):
         if document_type not in ('auto', 'rules', 'reference'):
             raise StoreError('不支持的文档类型')
-        if not content or len(content) > 10*1024*1024:
-            raise StoreError('文件为空或超过10 MiB')
+        if not content or len(content) > 100*1024*1024:
+            raise StoreError('文件为空或超过100 MiB')
         if not isinstance(title, str) or len(title) > 240:
             raise StoreError('文件名过长')
         suffix = Path(title).suffix.lower()

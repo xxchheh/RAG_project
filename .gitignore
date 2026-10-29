@@ -15,3 +15,5 @@ knowledge/
 .DS_Store
 data/rag_work/
 *.db-journal
+
+.venv-docling/

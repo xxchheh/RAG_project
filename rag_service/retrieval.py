@@ -22,7 +22,8 @@ def build_index(entries, embedder):
     if any(not isinstance(e.get('text'), str) or not e['text'].strip() for e in entries):
         raise ValueError('索引条目缺少有效文本')
     vectors = validate_vectors(embedder.embed([e['text'] for e in entries]), len(entries)) if entries else []
-    return {'profile': embedder.profile(), 'dimension': len(vectors[0]) if vectors else 0,
+    from .lexical import tokens
+    return {'lexical': {entry['id']: tokens(entry['text']) for entry in entries}, 'profile': embedder.profile(), 'dimension': len(vectors[0]) if vectors else 0,
             'vectors': [{'id': identifier, 'vector': vector} for identifier, vector in zip(ids, vectors)]}
 
 
@@ -66,6 +67,11 @@ def retrieve(query, entries, index, embedder, top_k=5, device_type=None):
         if query.strip().casefold() in text.casefold():
             score += 1
         keywords.append(score)
+    bm25 = None
+    if index.get('lexical'):
+        from .lexical import scores
+        bm25 = scores(query, [index['lexical'][row['id']] for row in indexed])
+        keywords = [max(old, score) for old, score in zip(keywords, bm25)]
     sem_order = sorted(range(len(indexed)), key=lambda i: (-similarities[i], indexed[i]['id']))
     key_order = sorted((i for i in range(len(indexed)) if keywords[i] > 0), key=lambda i: (-keywords[i], indexed[i]['id']))
     sem_ranks = {i: rank + 1 for rank, i in enumerate(sem_order)}
@@ -74,11 +80,20 @@ def retrieve(query, entries, index, embedder, top_k=5, device_type=None):
     for i, row in enumerate(indexed):
         name = by_id[row['id']].get('rule', {}).get('name') or by_id[row['id']]['text'].split('\n', 1)[0]
         name_match = 4 <= len(name) <= 80 and re.sub(r'\s+', '', name) in re.sub(r'\s+', '', query)
+        if (index.get('profile', {}).get('model') == 'BAAI/bge-small-zh-v1.5' and bm25 is not None
+                and not name_match and bm25[i] <= 0 and similarities[i] < .45):
+            continue
         if not name_match and similarities[i] <= 0 and keywords[i] == 0:
             continue
         score = (1.0 if name_match else 0.0) + 1 / (60 + sem_ranks[i]) + (1 / (60 + key_ranks[i]) if i in key_ranks else 0)
         hits.append({**copy.deepcopy(by_id[row['id']]), 'semantic_score': similarities[i], 'keyword_score': keywords[i], 'score': score})
-    return sorted(hits, key=lambda hit: (-hit['score'], hit['id']))[:top_k]
+    unique, seen = [], set()
+    for hit in sorted(hits, key=lambda hit: (-hit['score'], hit['id'])):
+        signature = re.sub(r'\s+', '', hit['text'])
+        if signature not in seen:
+            unique.append(hit); seen.add(signature)
+        if len(unique) == top_k: break
+    return unique
 
 
 def _focused_quotes(query, hits):

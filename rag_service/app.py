@@ -160,7 +160,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
                 if model is not None or model_factory is not None or (configured_key and os.environ.get('LLM_MODEL')):
                     raise
                 chosen_model = None
-            payload = parse_document(content, filename, chosen_model, document_type, progress=lambda stage: store.set_task(task_id, 'processing', stage))
+            payload = parse_document(content, filename, chosen_model, document_type, progress=lambda stage: store.set_task(task_id, 'processing', stage), artifact_root=store.root/'parsed')
             result = store.finish_upload(document_id, revision, payload)
             store.set_task(task_id, 'succeeded', '待审核', {'document_id':document_id,'revision':revision,'warnings':result['payload'].get('warnings',[])})
         except Exception as exc:
@@ -169,7 +169,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
             store.set_task(task_id, 'failed', '处理失败', error=message)
 
     async def accept_upload(background, file, kb_id, external_id=None, document_id=None, document_type="auto"):
-        content = await file.read(10*1024*1024+1)
+        content = await file.read(100*1024*1024+1)
         name = Path((file.filename or '').replace('\\','/')).name
         result = store.reserve_upload(kb_id, name, content, external_id, document_id, document_type=document_type)
         task_id = store.new_task()
@@ -202,6 +202,46 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
     @app.get(prefix+'/admin/documents/{document_id}', dependencies=admin)
     def get_document(document_id: str):
         return store.document(document_id)
+
+    @app.get(prefix+'/admin/documents/{document_id}/processing', dependencies=admin)
+    def processing_detail(document_id: str):
+        import hashlib, json
+        from .structured_reference import parser_id
+        doc = store.document(document_id)
+        key = hashlib.sha256((doc['file_hash']+parser_id()).encode()).hexdigest()
+        path = store.root/'parsed'/key/'manifest.json'
+        return json.loads(path.read_text()) if path.exists() else {'pages': [], 'failed_pages': {}, 'stage': doc['status']}
+
+    @app.get(prefix+'/admin/documents/{document_id}/pictures/{number}', dependencies=admin)
+    def original_picture(document_id: str, number: int):
+        import hashlib
+        from .structured_reference import parser_id
+        if number < 1: raise HTTPException(400, '图像编号无效')
+        doc = store.document(document_id)
+        key = hashlib.sha256((doc['file_hash']+parser_id()).encode()).hexdigest()
+        path = store.root/'parsed'/key/f'picture-{number}.png'
+        if not path.exists(): raise HTTPException(404, '图像区域不存在，请确认对应解析配置或下载原件')
+        return FileResponse(path, media_type='image/png')
+
+    @app.get(prefix+'/admin/documents/{document_id}/pages/{page}', dependencies=admin)
+    def original_page(document_id: str, page: int):
+        if page < 1: raise HTTPException(400, '页码必须为正整数')
+        doc = store.document(document_id)
+        if Path(doc['file_name']).suffix.lower() != '.pdf':
+            raise HTTPException(400, 'PPTX请下载原件核对；PDF可直接预览页面')
+        import io
+        import pypdfium2 as pdfium
+        from fastapi.responses import Response
+        path = store.root/'sources'/(doc['file_hash']+'.pdf')
+        from .ocr import _PDF_LOCK
+        with _PDF_LOCK:
+            pdf = pdfium.PdfDocument(path)
+            try:
+                if page > len(pdf): raise HTTPException(404, '页码超出范围')
+                rendered = pdf[page-1].render(scale=1.5).to_pil()
+                output = io.BytesIO(); rendered.save(output, format='PNG')
+                return Response(output.getvalue(), media_type='image/png')
+            finally: pdf.close()
 
     @app.get(prefix+'/admin/documents/{document_id}/audits', dependencies=admin)
     def audits(document_id: str):

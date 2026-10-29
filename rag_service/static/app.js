@@ -122,7 +122,7 @@ async function waitTask(response, title) {
 async function openDocument(id) {
   if (state.dirty && !confirm('当前文档有未保存的修改，确定切换文档？')) { $('review-document').value = state.document.id; return; }
   state.document = await api('/admin/documents/' + encodeURIComponent(id)); state.ruleIndex = 0; blockPage = 0; $('block-search').value = ''; $('block-kind').value = '';
-  $('review-document').value = id; renderReview();
+  $('review-document').value = id; $('source-preview').classList.add('hidden'); $('processing-output').textContent = ''; renderReview();
 }
 function renderReview() {
   const doc = state.document; if (!doc) return;
@@ -193,8 +193,19 @@ function renderDescription() {
   for (const block of blocks) {
     const row = el('div', null, 'source-block' + (block.kind !== 'description' ? ' quarantined' : ''));
     const locator = el('div', null, 'locator'); locator.append(el('span', block.id + ' · ' + block.locator), badge(block.kind, block.kind === 'description' ? '' : 'warn'));
+    if (block.extraction === 'docling') locator.append(badge((block.origin === 'ocr' ? 'OCR / ' : '')+(block.content_types || []).join(' / ')+' · 待核对', 'warn'));
     if (block.extraction === 'ocr') locator.append(badge('OCR · 待核对', 'warn'));
     const raw = block.source_text || block.text;
+    const picture = /^picture-(\d+)\.png$/.exec(block.asset || '');
+    if (picture) locator.append(button('核对图像区域', async () => {
+      const response = await fetch('/api/v1/admin/documents/'+encodeURIComponent(state.document.id)+'/pictures/'+picture[1], {headers:{Authorization:'Bearer '+state.token}});
+      if (!response.ok) throw new Error('原始图像读取失败，请下载原件核对');
+      if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+      sourcePreviewUrl = URL.createObjectURL(await response.blob()); $('source-preview').src = sourcePreviewUrl; $('source-preview').classList.remove('hidden');
+    }, 'quiet'));
+    if (block.page && /\.pdf$/i.test(state.document.file_name || state.document.title)) {
+      locator.append(button('核对本页', () => { $('preview-page').value = block.page; $('preview-source').click(); }, 'quiet'));
+    }
     row.append(locator, el('p', raw.slice(0, 140) + (raw.length > 140 ? '…' : ''), 'block-preview'), textDisclosure(raw, '查看完整原文')); source.append(row);
     const editor = el('details', null, 'block-editor');
     const summary = el('summary'); summary.append(el('span', block.id + ' · ' + block.locator), badge(block.kind));
@@ -394,3 +405,22 @@ $('reprocess-form').addEventListener('submit', action(async () => {
   await openDocument(id);
   showTab('review');
 }));
+
+let sourcePreviewUrl = null;
+$('preview-source').addEventListener('click', action(async () => {
+  if (!state.document) return;
+  const response = await fetch('/api/v1/admin/documents/' + encodeURIComponent(state.document.id) + '/pages/' + Number($('preview-page').value), {headers:{Authorization:'Bearer '+state.token}});
+  if (!response.ok) throw new Error((await response.json()).detail || '原页读取失败');
+  if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+  sourcePreviewUrl = URL.createObjectURL(await response.blob());
+  $('source-preview').src = sourcePreviewUrl; $('source-preview').classList.remove('hidden');
+}));
+$('processing-detail').addEventListener('click', action(async () => {
+  if (!state.document) return;
+  const result = await api('/admin/documents/' + encodeURIComponent(state.document.id) + '/processing');
+  $('processing-output').textContent = '成功页：'+(result.pages || []).join(', ')+'\n失败页及原因：'+JSON.stringify(result.failed_pages || {}, null, 2)+'\n未识别图像页（待复核，未进入检索）：'+JSON.stringify(result.unresolved_pages || {}, null, 2);
+}));
+
+$('source-preview').title = '点击放大核对原页';
+$('source-preview').style.cursor = 'zoom-in';
+$('source-preview').addEventListener('click', () => { if (sourcePreviewUrl) window.open(sourcePreviewUrl, '_blank', 'noopener'); });
