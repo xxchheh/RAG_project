@@ -72,17 +72,54 @@ def retrieve(query, entries, index, embedder, top_k=5, device_type=None):
     key_ranks = {i: rank + 1 for rank, i in enumerate(key_order)}
     hits = []
     for i, row in enumerate(indexed):
-        if similarities[i] <= 0 and keywords[i] == 0:
+        name = by_id[row['id']].get('rule', {}).get('name') or by_id[row['id']]['text'].split('\n', 1)[0]
+        name_match = 4 <= len(name) <= 80 and re.sub(r'\s+', '', name) in re.sub(r'\s+', '', query)
+        if not name_match and similarities[i] <= 0 and keywords[i] == 0:
             continue
-        score = 1 / (60 + sem_ranks[i]) + (1 / (60 + key_ranks[i]) if i in key_ranks else 0)
+        score = (1.0 if name_match else 0.0) + 1 / (60 + sem_ranks[i]) + (1 / (60 + key_ranks[i]) if i in key_ranks else 0)
         hits.append({**copy.deepcopy(by_id[row['id']]), 'semantic_score': similarities[i], 'keyword_score': keywords[i], 'score': score})
     return sorted(hits, key=lambda hit: (-hit['score'], hit['id']))[:top_k]
 
 
-def answer_question(query, hits, model):
+def _focused_quotes(query, hits):
+    """Known fault + explicit field question: use the reviewed field directly."""
+    fields = [("causes", "机理原因", r"原因|为什么|成因"), ("actions", "解决措施", r"措施|处理|维修|解决|怎么办"),
+              ("phenomena", "机理现象", r"现象|表现|症状"), ("original_text", "机理规则", r"判断|判据|条件|阈值|规则")]
+    requested = [(key, label) for key, label, words in fields if re.search(words, query)]
+    if not requested:
+        return None
+    matched = False
+    for hit in hits:
+        name = hit.get('rule', {}).get('name') or hit['text'].split('\n', 1)[0]
+        if not 4 <= len(name) <= 80 or re.sub(r'\s+', '', name) not in re.sub(r'\s+', '', query):
+            continue
+        matched = True
+        quotes = []
+        for key, label in requested:
+            if hit.get('rule'):
+                value = hit['rule'].get(key, [])
+                quote = value if isinstance(value, str) else '\n'.join(value)
+            else:
+                match = re.search(label+r'[:：]\s*(.*?)(?=\n(?:机理现象|机理原因|解决措施|机理规则)[:：]|$)', hit['text'], re.S)
+                quote = match[1].strip() if match else ''
+            if quote and quote in hit['text']:
+                quotes.append({'knowledge_id': hit['id'], 'quote': quote, 'source': copy.deepcopy(hit['source'])})
+        if quotes:
+            return quotes[:5]
+    return [] if matched else None
+
+
+def answer_question(query, hits, model, model_factory=None):
     insufficient = {'status': 'insufficient_evidence', 'answer': '已发布知识中没有足够依据回答这个问题。', 'citations': []}
     if not hits:
         return insufficient
+    focused = _focused_quotes(query, hits)
+    if focused == []:
+        return insufficient
+    if focused:
+        return {'status': 'answered', 'answer': '\n\n'.join(f"[{i+1}] {item['quote']}" for i, item in enumerate(focused)), 'citations': focused}
+    if model is None and model_factory is not None:
+        model = model_factory()
     if model is None:
         raise ValueError('知识问答需要配置对话模型')
     evidence = [{'knowledge_id': hit['id'], 'text': hit['text']} for hit in hits]

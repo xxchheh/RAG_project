@@ -944,3 +944,24 @@ footer {
 .associations {
   margin:20px 0;
 }
+
+.fault-navigation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.fault-navigation label { margin: 0; min-width: 260px; }
+#fault-summary:not(:empty) { border-bottom: 1px solid var(--line); padding: 8px 0 16px; margin-bottom: 16px; }
+#fault-summary .text-details { display: inline-block; vertical-align: top; margin: 0 24px 0 0; }
+#fault-summary .text-details[open] { display: block; }
+#document-type-filter { width: 120px; }
+@media (max-width: 760px) {
+  #document-type-filter { width: 100%; }
+  .fault-navigation label { min-width: 0; width: 100%; }
+}

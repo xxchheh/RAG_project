@@ -1,6 +1,6 @@
 # 专业知识 RAG 服务与设备诊断 Agent Demo
 
-`RAG_work` 新增独立 HTTP 服务和中文管理页面：支持 Markdown、Word、文字型 PDF，分级审核、版本发布、中文语义检索和带引用问答，供外部 Agent 读取知识及完整规则。
+`RAG_work` 新增独立 HTTP 服务和中文管理页面：支持 Markdown、Word、PDF（含扫描件OCR）和 PPTX，分级审核、版本发布、中文语义检索和带引用问答，供外部 Agent 读取知识及完整规则。
 
 ```bash
 # 在已安装 requirements.txt 的项目根目录运行

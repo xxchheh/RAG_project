@@ -1,7 +1,7 @@
 """Document text extraction and evidence-bound rule proposals.
 
-This module does not publish knowledge, evaluate measurements, run OCR, or obey
-instructions found in a document. Risky source blocks remain quarantined even
+This module does not publish knowledge, evaluate measurements, or obey
+instructions found in a document. Scanned inputs delegate to the local OCR adapter. Risky source blocks remain quarantined even
 when a model fails to recognise the corresponding rule.
 """
 from __future__ import annotations
@@ -88,6 +88,7 @@ def _word(content):
     except Exception:
         raise ValueError("无法解析 Word，请上传有效的 .docx 文件") from None
     blocks, section = [], ""
+    style_names = {style.style_id: style.name for style in document.styles}
 
     def walk(container, prefix=""):
         nonlocal section
@@ -100,11 +101,13 @@ def _word(content):
                     continue
                 style = child.find("w:pPr/w:pStyle", child.nsmap)
                 style_name = style.get(qn("w:val"), "") if style is not None else ""
-                heading = style_name.lower().startswith(("heading", "标题"))
+                resolved_style = style_names.get(style_name, style_name).lower()
+                heading = resolved_style.startswith(("heading", "标题"))
                 if heading:
                     section = text
                 blocks.append({"text": text, "locator": f"{prefix}段落 {paragraph_count}",
-                               "heading": heading, "section": section})
+                               "heading": heading, "section": section,
+                               "excluded": resolved_style.startswith(("toc", "目录")) or bool(child.xpath(".//w:instrText[contains(text(), 'TOC')]"))})
             elif child.tag == qn("w:tbl"):
                 table_count += 1
                 for rn, row in enumerate(child.findall(qn("w:tr")), 1):
@@ -114,34 +117,14 @@ def _word(content):
     return blocks
 
 
-def _pdf(content):
-    from pypdf import PdfReader
-    try:
-        reader = PdfReader(io.BytesIO(content))
-        if reader.is_encrypted:
-            raise ValueError("不支持加密 PDF，请先提供可读取的文字型 PDF")
-        if len(reader.pages) > MAX_PAGES:
-            raise ValueError("PDF 超过 100 页，请拆分文件")
-        blocks, empty_pages = [], []
-        for page_number, page in enumerate(reader.pages, 1):
-            text = page.extract_text() or ""
-            if not text.strip():
-                empty_pages.append(page_number)
-                continue
-            # A PDF text layer has no reliable paragraph semantics. Preserve
-            # line order and page locations; do not pretend to infer layout.
-            for line_number, line in enumerate(text.splitlines(), 1):
-                if line.strip():
-                    blocks.append({"text": line.strip(), "locator": f"第 {page_number} 页/行 {line_number}",
-                                   "heading": False, "section": f"第 {page_number} 页"})
-        if empty_pages:
-            # Partial extraction could silently omit a scanned rule page.
-            raise ValueError("PDF 含无法提取文字的页面（" + ", ".join(map(str, empty_pages)) + "），请提供完整文字版；本版不支持 OCR")
-        return blocks
-    except ValueError:
-        raise
-    except Exception:
-        raise ValueError("无法解析 PDF，请上传可提取文字的有效 PDF") from None
+def _pdf(content, progress=None):
+    from .reference_readers import pdf_blocks
+    return pdf_blocks(content, MAX_PAGES, progress)
+
+
+def _pptx(content, progress=None):
+    from .reference_readers import pptx_blocks
+    return pptx_blocks(content, MAX_PAGES, MAX_UNPACKED, progress)
 
 
 def _classify(blocks):
@@ -156,9 +139,10 @@ def _classify(blocks):
 
 
 def _groups(blocks):
+    blocks = [b for b in blocks if not b.get("excluded")]
     group, size = [], 0
     for block in blocks:
-        if group and size + len(block["text"]) > MODEL_GROUP_CHARS:
+        if group and (block.get("heading") or size + len(block["text"]) > MODEL_GROUP_CHARS):
             yield group
             group, size = [], 0
         group.append(block)
@@ -376,29 +360,109 @@ def validate_candidate(rule, blocks):
     return {**rule, **_proposal(rule, source_blocks)}
 
 
-def parse_document(content: bytes, filename: str, model=None) -> dict:
+def _standard_condition(original, name):
+    """Parse the supported labelled numeric template; never guess unknown logic."""
+    matches = list(_metric_pattern().finditer(original))
+    leaves = []
+    for i, match in enumerate(matches):
+        passage = original[match.end():matches[i+1].start() if i+1 < len(matches) else len(original)]
+        limits = {_OPS[op]: float(_numeric(number, percent)) for op, number, percent in _COMPARISON.findall(passage)}
+        if limits:
+            leaves.append({"metric": match.lastgroup, **limits})
+    if sum(len([k for k in leaf if k != "metric"]) for leaf in leaves) != len(_COMPARISON.findall(original)):
+        return {}, ["有无法对应指标的数值条件，请人工修正。"]
+    notes = ["模板提取为待审核草稿；并列条件暂按且，需核对原文逻辑及单位。"]
+    if "或" in original:
+        if "轴承" in name and [v["metric"] for v in leaves] == ["kurtosis", "low_frequency_impact", "crest_factor"]:
+            condition = {"all": [{"any": leaves[:2]}, leaves[2]]}
+            notes.append("演示口径：（峭度或低频冲击）且峰值因子；分组须业务审核。")
+        else:
+            return {}, ["或分支分组未能可靠识别，请人工修正。"]
+    else:
+        condition = {"all": leaves} if leaves else {}
+    return condition, notes
+
+
+def _standard_rules(blocks, model):
+    rules, device = [], ""
+    devices = {"电动机": "motor", "电机": "motor", "联轴器": "coupling", "水泵": "pump", "风机": "fan", "齿轮箱": "gearbox"}
+    for group in _groups(blocks):
+        title = group[0].get("section") or group[0]["text"]
+        device = next((code for word, code in devices.items() if word in title), device)
+        predicates = [b for b in group if _RULE_LABEL.search(b["text"])]
+        if not predicates:
+            continue
+        original = "\n".join(b["text"] for b in predicates)
+        condition, notes = _standard_condition(original, title)
+        if not group[0].get('heading'):
+            condition = {}
+            notes.append('未识别到故障标题，需模型辅助或人工确认条目边界。')
+        if title == '风机汽蚀':
+            notes.append('保留原文“风机汽蚀”名称，对应名称及机理待业务复核。')
+        raw = {"name": title, "device_type": device, "original_text": original,
+               "condition": condition, "block_ids": [b["id"] for b in predicates], "review_notes": notes}
+        # Non-template content still uses evidence-bound extraction when available.
+        if not condition and model is not None:
+            proposed = _model_json(model.complete(_prompt(group)))
+            candidates = proposed.get("rules", [])
+        else:
+            candidates = [raw]
+        for candidate in candidates or [raw]:
+            rule = _proposal(candidate, group)
+            rules.append(rule)
+            for block in group:
+                if block["id"] in rule["block_ids"]:
+                    block["kind"] = "rule"
+    if len(rules) > MAX_RULES:
+        raise ValueError("文档规则超过100条限制，请拆分")
+    return rules
+
+
+def parse_document(content: bytes, filename: str, model=None, document_type="auto", progress=None) -> dict:
     """Parse bytes into reviewable source blocks and rule proposals.
 
     A successful return means extraction completed, never that content is
     approved. Callers must independently review descriptions and each rule.
     """
+    if document_type not in ("auto", "rules", "reference"):
+        raise ValueError("文档类型必须为auto、rules或reference")
     if not isinstance(content, bytes) or not content or len(content) > MAX_BYTES:
         raise ValueError("文件为空或超过10 MiB限制")
     if not isinstance(filename, str):
         raise ValueError("文件名必须是字符串")
     filename = filename.replace("\\", "/").rsplit("/", 1)[-1]
     suffix = PurePosixPath(filename).suffix.lower()
-    reader = {".md": _markdown, ".docx": _word, ".pdf": _pdf}.get(suffix)
+    reader = {".md": _markdown, ".docx": _word, ".pdf": _pdf, ".pptx": _pptx}.get(suffix)
     if reader is None:
-        raise ValueError("仅支持 .md、.docx 和文字型 .pdf 文件")
-    blocks = reader(content)
+        raise ValueError("仅支持 .md、.docx、文字型 .pdf 和 .pptx 文件；旧版 .ppt 请先转换为 .pptx")
+    blocks = reader(content, progress=progress) if suffix in ('.pdf', '.pptx') else reader(content)
     if not blocks or not any(block["text"].strip() for block in blocks):
         raise ValueError("文档中没有可提取的文字；扫描图片需先转换为文字")
     if sum(len(b["text"]) for b in blocks) > MAX_CHARS:
         raise ValueError("文档文字超过200000字限制，请拆分")
     _classify(blocks)
+    heading = ""
+    for block in blocks:
+        if block.get("page"):
+            block["section"] = block.get("page_title") or f"第 {block['page']} 页"
+            continue
+        if block.get("heading"):
+            heading = re.sub(r"^#+\s*", "", block["text"])
+        block["section"] = heading
+    suggested = "rules" if sum(bool(_RULE_LABEL.search(b["text"])) for b in blocks if not b.get("excluded")) >= 2 else "reference"
+    effective = suggested if document_type == "auto" else document_type
+    if effective == "rules":
+        first = next((i for i, b in enumerate(blocks) if b.get("heading") and not b.get("excluded")), 0)
+        for block in blocks[:first]:
+            block["excluded"] = True
     rules, warnings = [], []
-    if model is not None:
+    if suffix in ('.pdf', '.pptx'):
+        warnings.append('已提取可读取文字并保留页码；扫描页或幻灯片图片使用本地OCR；公式、图表及复杂版式不保证完整，数字、单位和阈值必须对照原件审核。')
+    if effective == "rules":
+        rules = _standard_rules(blocks, model)
+        if not rules:
+            warnings.append("未识别到完整故障条目，请核对标题及机理规则字段，或改用普通参考文档。")
+    elif model is not None:
         for group in _groups(blocks):
             proposed = _model_json(model.complete(_prompt(group)))
             known = {b["id"]: b for b in group}
@@ -418,8 +482,13 @@ def parse_document(content: bytes, filename: str, model=None) -> dict:
     uncertain = [b["id"] for b in blocks if b["kind"] == "uncertain"]
     if uncertain:
         warnings.append("以下原文块含可能的规则或未确定内容，审核前不进入说明检索：" + "、".join(uncertain))
+    ocr_blocks = [b for b in blocks if b.get('extraction') == 'ocr']
+    if ocr_blocks:
+        warnings.append(f'有{len(ocr_blocks)}个原文块来自OCR，页码位置已标记；必须人工核对识别文本后发布。')
+        if any(b.get('ocr_confidence') is not None and b['ocr_confidence'] < .8 for b in ocr_blocks):
+            warnings.append('部分OCR文字识别分数偏低，需重点复核；分数不是诊断置信度。')
     invalid_count = sum(not r.get("valid") for r in rules)
     if invalid_count:
         warnings.append(f"有{invalid_count}条专业规则需修正，不能直接审核发布。")
-    return {"filename": filename, "sha256": hashlib.sha256(content).hexdigest(),
+    return {"document_type": effective, "suggested_type": suggested, "parser_version": "reference-pages-v3", "filename": filename, "sha256": hashlib.sha256(content).hexdigest(),
             "blocks": blocks, "rules": rules, "warnings": warnings}

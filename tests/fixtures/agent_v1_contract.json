@@ -73,7 +73,8 @@
     "formats": [
       "md",
       "docx",
-      "pdf"
+      "pdf",
+      "pptx"
     ],
     "groups": [
       "all",

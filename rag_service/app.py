@@ -50,6 +50,10 @@ class Review(Input):
     note: str = Field(default='', max_length=2000)
 
 
+class Reprocess(Input):
+    document_type: Literal['auto', 'rules', 'reference'] = 'auto'
+
+
 class Publication(Input):
     kb_id: str
 
@@ -123,7 +127,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
         return {'schema_version': wire.RULE_SCHEMA_VERSION, 'device_types': {'motor':'电机','pump':'水泵','fan':'风机','coupling':'联轴器','gearbox':'齿轮箱'},
                 'metrics': {k: {'name':v[0], 'unit':v[1]} for k,v in METRICS.items()},
                 'derived': {k: {'name':DERIVED_LABELS[k], 'unit':'1', 'numerators':v[0], 'denominator':v[1], 'formula':'sqrt(sum(numerator**2))/denominator'} for k,v in DERIVED.items()},
-                'operators':['ge','gt','le','lt'], 'groups':['all','any'], 'formats':['md','docx','pdf'], 'executes_diagnosis':False}
+                'operators':['ge','gt','le','lt'], 'groups':['all','any'], 'formats':['md','docx','pdf','pptx'], 'executes_diagnosis':False}
 
     @app.get(prefix+'/knowledge-bases', dependencies=read, response_model=list[wire.KnowledgeBase], response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def list_kbs():
@@ -145,7 +149,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
     def documents(kb_id: str):
         return store.documents(kb_id)
 
-    def process_file(task_id, document_id, revision, content, filename):
+    def process_file(task_id, document_id, revision, content, filename, document_type="auto"):
         try:
             store.set_task(task_id, 'processing', '解析与提取')
             from .documents import parse_document
@@ -156,7 +160,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
                 if model is not None or model_factory is not None or (configured_key and os.environ.get('LLM_MODEL')):
                     raise
                 chosen_model = None
-            payload = parse_document(content, filename, chosen_model)
+            payload = parse_document(content, filename, chosen_model, document_type, progress=lambda stage: store.set_task(task_id, 'processing', stage))
             result = store.finish_upload(document_id, revision, payload)
             store.set_task(task_id, 'succeeded', '待审核', {'document_id':document_id,'revision':revision,'warnings':result['payload'].get('warnings',[])})
         except Exception as exc:
@@ -164,25 +168,36 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
             message = str(exc) if isinstance(exc, ValueError) else '文档处理失败，请检查文件格式或服务运行环境'
             store.set_task(task_id, 'failed', '处理失败', error=message)
 
-    async def accept_upload(background, file, kb_id, external_id=None, document_id=None):
+    async def accept_upload(background, file, kb_id, external_id=None, document_id=None, document_type="auto"):
         content = await file.read(10*1024*1024+1)
         name = Path((file.filename or '').replace('\\','/')).name
-        result = store.reserve_upload(kb_id, name, content, external_id, document_id)
+        result = store.reserve_upload(kb_id, name, content, external_id, document_id, document_type=document_type)
         task_id = store.new_task()
         if result['unchanged']:
             store.set_task(task_id, 'succeeded', '文件未变化', result)
         else:
-            background.add_task(process_file, task_id, result['document_id'], result['revision'], content, name)
+            background.add_task(process_file, task_id, result['document_id'], result['revision'], content, name, document_type)
         return {'task_id':task_id, **result}
 
     @app.post(prefix+'/admin/documents', dependencies=admin, status_code=202)
-    async def upload(background: BackgroundTasks, kb_id: str = Form(...), file: UploadFile = File(...), external_id: str | None = Form(None)):
-        return await accept_upload(background, file, kb_id, external_id)
+    async def upload(background: BackgroundTasks, kb_id: str = Form(...), file: UploadFile = File(...), external_id: str | None = Form(None), document_type: Literal['auto', 'rules', 'reference'] = Form('auto')):
+        return await accept_upload(background, file, kb_id, external_id, document_type=document_type)
 
     @app.post(prefix+'/admin/documents/{document_id}/revisions', dependencies=admin, status_code=202)
-    async def replace(document_id: str, background: BackgroundTasks, file: UploadFile = File(...)):
+    async def replace(document_id: str, background: BackgroundTasks, file: UploadFile = File(...), document_type: Literal['auto', 'rules', 'reference'] = Form('auto')):
         doc = store.document(document_id)
-        return await accept_upload(background, file, doc['kb_id'], document_id=document_id)
+        return await accept_upload(background, file, doc['kb_id'], document_id=document_id, document_type=document_type if document_type != 'auto' else doc['payload'].get('document_type', 'auto'))
+
+    @app.post(prefix+'/admin/documents/{document_id}/reprocess', dependencies=admin, status_code=202)
+    def reprocess(document_id: str, body: Reprocess, background: BackgroundTasks):
+        doc = store.document(document_id)
+        path = store.root/'sources'/(doc['file_hash']+Path(doc['file_name']).suffix.lower())
+        content = path.read_bytes()
+        result = store.reserve_upload(doc['kb_id'], doc['file_name'], content,
+            document_id=document_id, document_type=body.document_type, force=True)
+        task_id = store.new_task()
+        background.add_task(process_file, task_id, document_id, result['revision'], content, doc['file_name'], body.document_type)
+        return {'task_id': task_id, **result}
 
     @app.get(prefix+'/admin/documents/{document_id}', dependencies=admin)
     def get_document(document_id: str):
@@ -269,7 +284,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
     def answers(body: Query):
         from .retrieval import answer_question
         found=retrieve(body)
-        result=answer_question(body.query,found['items'],get_model() if found['items'] else None)
+        result=answer_question(body.query,found['items'],None,model_factory=get_model)
         return {**found,**result}
 
     @app.get(prefix+'/rules', dependencies=read, response_model=wire.Rules, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)

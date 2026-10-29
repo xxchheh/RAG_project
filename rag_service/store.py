@@ -105,14 +105,16 @@ class Store:
         with self.connection() as c:
             c.execute('UPDATE tasks SET status=?,stage=?,result=?,error=? WHERE id=?', (status, stage, encoded(result) if result is not None else None, error, key))
 
-    def reserve_upload(self, kb_id, title, content, external_id=None, document_id=None):
+    def reserve_upload(self, kb_id, title, content, external_id=None, document_id=None, document_type="auto", force=False):
+        if document_type not in ('auto', 'rules', 'reference'):
+            raise StoreError('不支持的文档类型')
         if not content or len(content) > 10*1024*1024:
             raise StoreError('文件为空或超过10 MiB')
         if not isinstance(title, str) or len(title) > 240:
             raise StoreError('文件名过长')
         suffix = Path(title).suffix.lower()
-        if suffix not in ('.md', '.docx', '.pdf'):
-            raise StoreError('仅支持.md、.docx、文字型.pdf')
+        if suffix not in ('.md', '.docx', '.pdf', '.pptx'):
+            raise StoreError('仅支持.md、.docx、文字型.pdf、.pptx；.ppt请先另存为.pptx')
         sha = hashlib.sha256(content).hexdigest()
         folder = self.root / 'sources'
         folder.mkdir(exist_ok=True)
@@ -134,14 +136,14 @@ class Store:
                 if doc['status'] in ('queued', 'processing'):
                     raise StoreError('该文档仍有处理任务，请等待完成', 409)
                 previous = c.execute('SELECT file_hash FROM revisions WHERE document_id=? AND revision=?', (document_id, doc['latest_revision'])).fetchone()
-                if previous and previous['file_hash'] == sha and doc['status'] == 'ready':
+                if not force and previous and previous['file_hash'] == sha and doc['status'] == 'ready' and document_type in ('auto', doc['payload'].get('document_type', 'auto')):
                     return {'document_id': document_id, 'revision': doc['latest_revision'], 'unchanged': True}
                 revision = doc['latest_revision'] + 1
                 c.execute("UPDATE documents SET latest_revision=?,title=?,status='queued',disabled=0 WHERE id=?", (revision, title, document_id))
             else:
                 document_id, revision = uid('doc'), 1
                 c.execute('INSERT INTO documents(id,kb_id,title,external_id,latest_revision) VALUES (?,?,?,?,?)', (document_id, kb_id, title, external_id or None, revision))
-            c.execute('INSERT INTO revisions(document_id,revision,payload,file_hash,file_name,created_at) VALUES (?,?,?,?,?,?)', (document_id, revision, encoded({'blocks': [], 'rules': [], 'warnings': []}), sha, title, now()))
+            c.execute('INSERT INTO revisions(document_id,revision,payload,file_hash,file_name,created_at) VALUES (?,?,?,?,?,?)', (document_id, revision, encoded({'blocks': [], 'rules': [], 'warnings': [], 'document_type': document_type}), sha, title, now()))
             c.execute('UPDATE kbs SET state_version=state_version+1 WHERE id=?', (kb_id,))
         return {'document_id': document_id, 'revision': revision, 'unchanged': False}
 
@@ -159,7 +161,7 @@ class Store:
     def documents(self, kb_id):
         with self.connection() as c:
             self._kb(c, kb_id)
-            return [{k: v for k, v in self._doc(c, row['id']).items() if k != 'payload'} for row in c.execute('SELECT id FROM documents WHERE kb_id=? ORDER BY rowid', (kb_id,)).fetchall()]
+            return [{**{k: v for k, v in doc.items() if k != 'payload'}, 'document_type': doc['payload'].get('document_type', 'auto')} for row in c.execute('SELECT id FROM documents WHERE kb_id=? ORDER BY rowid', (kb_id,)).fetchall() for doc in [self._doc(c, row['id'])]]
 
     @staticmethod
     def _rule(rule, blocks):
@@ -203,6 +205,7 @@ class Store:
             if doc['latest_revision'] != revision:
                 raise StoreError('文档修订版已变化', 409)
             payload = copy.deepcopy(payload)
+            payload.setdefault('document_type', doc['payload'].get('document_type', 'auto'))
             previous = c.execute('SELECT payload FROM revisions WHERE document_id=? AND revision=?', (document_id, revision-1)).fetchone()
             old_rules = json.loads(previous['payload'])['rules'] if previous else []
             names = {r['name']: r for r in old_rules}
@@ -247,6 +250,11 @@ class Store:
                     if b.get('kind') not in ('description', 'rule', 'uncertain') or not isinstance(b.get('text'), str) or len(b['text']) > 50000:
                         raise StoreError('无效的原文块')
                     b['source_text'], b['locator'] = old_blocks[b['id']]['source_text'], old_blocks[b['id']]['locator']
+                    for key in ('excluded', 'heading', 'section', 'page', 'page_title', 'extraction', 'ocr_confidence'):
+                        if key in old_blocks[b['id']]:
+                            b[key] = old_blocks[b['id']][key]
+                        else:
+                            b.pop(key, None)
                 payload['blocks'] = blocks
             if rules is not None:
                 if not isinstance(rules, list) or len(rules) > 100:
@@ -354,12 +362,24 @@ class Store:
                     entries = {k:v for k,v in entries.items() if not (v['kind']=='description' and v['source']['document_id']==did and v['source']['document_revision']==doc['latest_revision'] and any(k.startswith(f'{did}-{bid}-') for bid in unsafe))}
                 if doc['description_status'] == 'approved':
                     entries = {k:v for k,v in entries.items() if not (v['source']['document_id'] == did and v['kind'] == 'description')}
-                    for block in payload['blocks']:
-                        if block['kind'] != 'description' or block['id'] in blocked:
-                            continue
-                        for i, text in enumerate(split_text(block['text'])):
-                            key = f"{did}-{block['id']}-{i}"
-                            entries[key] = {'id': key, 'kind': 'description', 'text': text, 'device_type': block.get('device_type') or (payload['rules'][0].get('device_type') if payload['rules'] and len({r.get('device_type') for r in payload['rules']})==1 else None), 'knowledge_revision': doc['edit_version'], 'source': {**source, 'locator': block['locator'], 'original_quote': block.get('source_text', block['text'])}}
+                    from .knowledge_units import prose_units
+                    # For a structured rule document, all section prose is represented
+                    # once by the fault unit; approved rules replace the prose-only unit.
+                    prose_blocks = payload['blocks']
+                    if payload.get('document_type') == 'rules':
+                        from .documents import _context
+                        complete_ids = {b['id'] for r in payload['rules'] if r['review_status'] == 'approved' and not r.get('retired') for b in _context(prose_blocks, r.get('block_ids', []))}
+                        unsafe |= complete_ids
+                    from .documents import _context
+                    section_devices = {b['id']: r['device_type'] for r in payload['rules'] for b in _context(prose_blocks, r.get('block_ids', []))}
+                    units = prose_units(prose_blocks, unsafe)
+                    counters = {}
+                    for block_id, text, locator, raw in units:
+                        i = counters.get(block_id, 0); counters[block_id] = i+1
+                        key = f"{did}-{block_id}-{i}"
+                        entries[key] = {'id': key, 'kind': 'description', 'text': text,
+                            'device_type': section_devices.get(block_id) or next((b.get('device_type') for b in prose_blocks if b['id'] == block_id), None) or (payload['rules'][0].get('device_type') if payload['rules'] and len({r.get('device_type') for r in payload['rules']}) == 1 else None),
+                            'knowledge_revision': doc['edit_version'], 'source': {**source, 'locator': locator, 'original_quote': raw}}
                 for rule in payload['rules']:
                     if rule['review_status'] != 'approved':
                         continue
@@ -369,9 +389,20 @@ class Store:
                     if rule.get('retired'):
                         entries.pop(key, None)
                         continue
+                    from .knowledge_units import rule_text, source_location
+                    public_rule = copy.deepcopy(rule)
+                    descriptions = doc['description_status'] == 'approved'
+                    if not descriptions:
+                        for field in ('phenomena', 'causes', 'actions', 'notes'):
+                            public_rule[field] = []
                     raw = rule['original_text']
                     locator = '；'.join(b['locator'] for b in payload['blocks'] if b['id'] in rule.get('block_ids', []))
-                    entries[key] = {'id': key, 'kind': 'rule', 'text': '\n'.join([rule['name'], rule['original_text'], *rule.get('causes', []), *rule.get('actions', [])]), 'device_type': rule['device_type'], 'rule': copy.deepcopy(rule), 'knowledge_revision': rule.get('knowledge_revision', 1), 'source': {**source, 'locator': locator, 'original_quote': raw}}
+                    if descriptions and payload.get('document_type') == 'rules':
+                        from .documents import _context
+                        context = _context(payload['blocks'], rule.get('block_ids', []))
+                        locator = source_location(context)
+                        raw = '\n'.join([*(b.get('source_text', b['text']) for b in context if b['kind'] == 'description' and b['id'] not in blocked and not b.get('excluded')), rule['original_text']])
+                    entries[key] = {'id': key, 'kind': 'rule', 'text': rule_text(public_rule, descriptions), 'device_type': rule['device_type'], 'rule': public_rule, 'knowledge_revision': rule.get('knowledge_revision', 1), 'source': {**source, 'locator': locator, 'original_quote': raw}}
             return kb, list(entries.values())
 
     def publish(self, kb_id, embedder, restore_id=None, reindex=False):
