@@ -36,6 +36,7 @@ async function api(path, options = {}) {
 }
 function setAccess() { document.querySelectorAll('.admin-action, .admin-form button, .admin-form input').forEach(node => { node.disabled = state.access !== 'admin'; }); }
 function showTab(name) {
+  $('page-name').textContent = {documents:'文档管理', review:'审核工作台', versions:'发布与版本', search:'检索与问答'}[name] || '文档管理';
   document.querySelectorAll('[data-tab]').forEach(node => { const active = node.dataset.tab === name; node.classList.toggle('active', active); node.setAttribute('aria-selected', String(active)); });
   document.querySelectorAll('.tab-panel').forEach(node => node.classList.toggle('hidden', node.id !== 'tab-' + name));
 }
@@ -83,16 +84,25 @@ async function loadDocuments() {
   $('review-document').replaceChildren(option('', '请选择文档'), ...state.documents.map(doc => option(doc.id, doc.title + ' · V' + doc.latest_revision)));
   const list = $('document-list'); list.replaceChildren(); list.classList.remove('empty');
   if (!state.documents.length) return empty(list, '还没有文档。上传一份资料开始构建知识库。');
-  for (const doc of state.documents) {
-    const row = el('div', null, 'doc-row');
-    const title = el('div'); title.append(el('div', doc.title, 'doc-title'), el('small', '修订 V' + doc.latest_revision + (doc.external_id ? ' · 外部编号 ' + doc.external_id : '')));
-    const status = el('div'); status.append(badge(doc.disabled ? '待停用／已停用' : statusNames[doc.status] || doc.status || '待审核', doc.disabled ? 'warn' : ''), el('small', '说明：' + (statusNames[doc.description_status] || doc.description_status || '待审核')));
+  renderDocuments();
+}
+function renderDocuments() {
+  const list = $('document-list'); list.replaceChildren();
+  const term = $('document-filter').value.trim().toLowerCase();
+  const docs = state.documents.filter(doc => (doc.title + ' ' + (doc.external_id || '')).toLowerCase().includes(term));
+  if (!docs.length) return empty(list, term ? '没有匹配的文档。' : '还没有文档，点击“上传文档”开始。');
+  const scroll = el('div', null, 'table-scroll'); const table = el('table', null, 'document-table');
+  const head = el('thead'); const headings = el('tr'); ['文档名称', '处理与审核', '操作'].forEach(text => headings.append(el('th', text))); head.append(headings); const body = el('tbody'); table.append(head, body); scroll.append(table); list.append(scroll);
+  for (const doc of docs) {
+    const row = el('tr');
+    const title = el('td'); title.append(el('div', doc.title, 'doc-title'), el('small', '修订 V' + doc.latest_revision + (doc.external_id ? ' · 外部编号 ' + doc.external_id : '')));
+    const status = el('td'); status.append(badge(doc.disabled ? '待停用／已停用' : statusNames[doc.status] || doc.status || '待审核', doc.disabled ? 'warn' : ''), el('small', '说明：' + (statusNames[doc.description_status] || doc.description_status || '待审核')));
     const actions = el('div', null, 'doc-actions');
     actions.append(button('查看与审核', async () => { await openDocument(doc.id); showTab('review'); }));
-    const file = input('', 'file'); file.accept = '.md,.docx,.pdf'; file.setAttribute('aria-label', '选择替换 ' + doc.title + ' 的文件');
+    const file = input('', 'file'); file.accept = '.md,.docx,.pdf'; file.className = 'file-input'; file.setAttribute('aria-label', '选择替换 ' + doc.title + ' 的文件');
     file.addEventListener('change', action(async () => { if (!file.files.length) return; const body = new FormData(); body.append('file', file.files[0]); await waitTask(await api('/admin/documents/' + encodeURIComponent(doc.id) + '/revisions', {method: 'POST', body}), '处理文档新版本'); await loadDocuments(); }));
-    actions.append(file, button(doc.disabled ? '恢复使用' : '停用', async () => { await api('/admin/documents/' + encodeURIComponent(doc.id) + '/disable', {method: 'POST', body: {disabled: !doc.disabled}}); notice('已更新文档状态，请到“发布与版本”发布后对外生效。'); await loadDocuments(); }, doc.disabled ? '' : 'danger'));
-    row.append(title, status, actions); list.append(row);
+    actions.append(button('替换', () => file.click(), 'quiet'), file, button(doc.disabled ? '恢复使用' : '停用', async () => { await api('/admin/documents/' + encodeURIComponent(doc.id) + '/disable', {method: 'POST', body: {disabled: !doc.disabled}}); notice('已更新文档状态，请到“发布与版本”发布后对外生效。'); await loadDocuments(); }, doc.disabled ? '' : 'danger'));
+    const actionCell = el('td'); actionCell.append(actions); row.append(title, status, actionCell); body.append(row);
   }
 }
 async function waitTask(response, title) {
@@ -109,7 +119,8 @@ async function waitTask(response, title) {
   throw new Error('任务仍在处理中，可稍后刷新查看。任务编号：' + response.task_id);
 }
 async function openDocument(id) {
-  state.document = await api('/admin/documents/' + encodeURIComponent(id)); state.ruleIndex = 0;
+  if (state.dirty && !confirm('当前文档有未保存的修改，确定切换文档？')) { $('review-document').value = state.document.id; return; }
+  state.document = await api('/admin/documents/' + encodeURIComponent(id)); state.ruleIndex = 0; blockPage = 0; $('block-search').value = ''; $('block-kind').value = '';
   $('review-document').value = id; renderReview();
 }
 function renderReview() {
@@ -129,12 +140,6 @@ function renderReview() {
     for (const row of rows) box.append(el('p', [row.created_at, row.target || row.target_id, statusNames[row.decision] || row.decision, row.note].filter(Boolean).join(' · ')));
     $('review-meta').append(box);
   }, 'quiet'));
-  const source = $('source-blocks'); source.replaceChildren();
-  for (const block of doc.payload.blocks) {
-    const row = el('div', null, 'source-block' + (block.kind !== 'description' ? ' quarantined' : ''));
-    const locator = el('div', null, 'locator'); locator.append(el('span', block.id + ' · ' + block.locator), badge(block.kind, block.kind === 'description' ? '' : 'warn'));
-    row.append(locator, el('pre', block.source_text || block.text)); source.append(row);
-  }
   renderDescription(); renderRules(); setEditor(state.editor);
 }
 function setEditor(name) { state.editor = name; $('description-editor').classList.toggle('hidden', name !== 'description'); $('rules-editor').classList.toggle('hidden', name !== 'rules'); $('edit-description').classList.toggle('active', name === 'description'); $('edit-rules').classList.toggle('active', name === 'rules'); }
@@ -155,18 +160,41 @@ function auditActions(container, target, ruleId) {
   actions.append(button('保存修改', saveDocument), button('审核通过', () => review(target, 'approved', note.value, ruleId), 'primary'), button('退回修改', () => review(target, 'rejected', note.value, ruleId), 'danger'));
   container.append(actions, el('small', '先保存修改，再审核保存后的内容；未保存的编辑不会随审核提交。'));
 }
+let blockPage = 0;
+const blocksPerPage = 6;
+function visibleBlocks() {
+  const term = $('block-search').value.trim().toLowerCase(); const kind = $('block-kind').value;
+  const blocks = state.document.payload.blocks.filter(block => (!kind || block.kind === kind) && (!term || (block.text + ' ' + block.locator + ' ' + block.id).toLowerCase().includes(term)));
+  const pages = Math.max(1, Math.ceil(blocks.length / blocksPerPage)); blockPage = Math.min(blockPage, pages - 1);
+  $('block-count').textContent = blocks.length + ' 块 · 第 ' + (blockPage + 1) + ' / ' + pages + ' 页';
+  $('blocks-prev').disabled = blockPage === 0; $('blocks-next').disabled = blockPage >= pages - 1;
+  return blocks.slice(blockPage * blocksPerPage, (blockPage + 1) * blocksPerPage);
+}
+function textDisclosure(text, label = '展开完整内容') {
+  const details = el('details', null, 'text-details'); details.append(el('summary', label), el('pre', text, 'preserve-lines')); return details;
+}
 function renderDescription() {
   const root = $('description-editor'); root.replaceChildren();
   root.append(el('p', '核对整篇说明的完整性与来源。规则段、待分类段不会作为说明发布。', 'muted'));
   const warnings = state.document.payload.warnings || [];
   if (warnings.length) { const box = el('div', null, 'warning-list'); warnings.forEach(text => box.append(el('p', text))); root.append(box); }
-  for (const block of state.document.payload.blocks) {
-    const editor = el('div', null, 'block-editor'); const heading = el('div', null, 'row');
+  const source = $('source-blocks'); source.replaceChildren();
+  const blocks = visibleBlocks();
+  if (!blocks.length) { empty(source, '没有匹配的原文块。'); root.append(el('p', '没有匹配的内容。', 'muted')); }
+  for (const block of blocks) {
+    const row = el('div', null, 'source-block' + (block.kind !== 'description' ? ' quarantined' : ''));
+    const locator = el('div', null, 'locator'); locator.append(el('span', block.id + ' · ' + block.locator), badge(block.kind, block.kind === 'description' ? '' : 'warn'));
+    const raw = block.source_text || block.text;
+    row.append(locator, el('p', raw.slice(0, 140) + (raw.length > 140 ? '…' : ''), 'block-preview'), textDisclosure(raw, '查看完整原文')); source.append(row);
+    const editor = el('details', null, 'block-editor');
+    const summary = el('summary'); summary.append(el('span', block.id + ' · ' + block.locator), badge(block.kind));
+    editor.append(summary, el('p', block.text.slice(0, 100) + (block.text.length > 100 ? '…' : ''), 'block-preview'));
+    const heading = el('div', null, 'row');
     const kind = select([['description', '说明内容'], ['rule', '专业规则段'], ['uncertain', '待分类／待修正']], block.kind);
     kind.addEventListener('change', () => { block.kind = kind.value; });
     heading.append(el('span', block.id + ' · ' + block.locator, 'muted'), kind);
     const text = area(block.text, Math.min(7, Math.max(2, Math.ceil((block.text || '').length / 70)))); text.addEventListener('input', () => { block.text = text.value; });
-    editor.append(heading, text); root.append(editor);
+    editor.append(heading, field('编辑内容', text)); root.append(editor);
   }
   auditActions(root, 'description');
 }
@@ -230,11 +258,14 @@ function renderRules() {
   }
   const errors = rule.validation_errors || [];
   if (errors.length || rule.valid === false) { const box = el('div', null, 'warning-list'); box.append(el('strong', '需修正后才能审核通过')); errors.forEach(text => box.append(el('p', typeof text === 'string' ? text : JSON.stringify(text)))); root.append(box); }
-  root.append(el('strong', '关联原文块'));
+  const associations = el('details', null, 'text-details associations');
+  associations.append(el('summary', '关联原文块 · 已选 ' + (rule.block_ids || []).length + ' 块'));
+  const associationList = el('div', null, 'association-list'); associations.append(associationList); root.append(associations);
   for (const block of state.document.payload.blocks) {
     const line = el('label', null, 'check-row'); const check = input('', 'checkbox'); check.checked = (rule.block_ids || []).includes(block.id);
     check.addEventListener('change', () => { rule.block_ids = check.checked ? [...new Set([...(rule.block_ids || []), block.id])] : (rule.block_ids || []).filter(id => id !== block.id); });
-    line.append(check, el('span', block.id + ' · ' + block.locator + ' · ' + block.text.slice(0, 50))); root.append(line);
+    line.append(check, el('span', block.id + ' · ' + block.locator + ' · ' + block.text.slice(0, 50))); associationList.append(line);
+    check.addEventListener('change', () => { associations.querySelector('summary').textContent = '关联原文块 · 已选 ' + rule.block_ids.length + ' 块'; });
   }
   const retired = input('', 'checkbox'); retired.checked = Boolean(rule.retired); retired.addEventListener('change', () => { rule.retired = retired.checked; });
   const retireRow = el('label', null, 'check-row'); retireRow.append(retired, el('span', '停用这条规则（保存、审核并发布后生效）')); root.append(retireRow);
@@ -255,7 +286,7 @@ function renderRelease() {
   root.append(el('p', release.id, 'muted')); const changes = release.changes || {}; const stats = el('div', null, 'metadata-grid');
   for (const [key, label] of [['added', '新增'], ['changed', '修改'], ['removed', '移除']]) { const value = changes[key]; const node = el('div'); node.append(el('strong', Array.isArray(value) ? value.length : typeof value === 'number' ? value : 0), el('small', label)); stats.append(node); } root.append(stats);
   if (release.profile) root.append(el('p', '索引模型：' + (release.profile.mode || '') + ' · ' + (release.profile.model || ''), 'muted'));
-  for (const entry of release.entries || []) { const rule = entry.rule || entry; const row = el('div', null, 'release-entry'); row.append(el('strong', (rule.name || entry.id) + ' · ' + (entry.kind === 'rule' ? '专业规则' : '说明')), el('pre', entry.text || entry.original_text || '')); if (rule.condition) row.append(el('p', expression(rule.condition), 'condition-preview')); row.append(sourceCaption(entry.source)); root.append(row); }
+  for (const entry of release.entries || []) { const rule = entry.rule || entry; const row = el('div', null, 'release-entry'); row.append(el('strong', (rule.name || entry.id) + ' · ' + (entry.kind === 'rule' ? '专业规则' : '说明')), textDisclosure(entry.text || entry.original_text || ''));  if (rule.condition) row.append(el('p', expression(rule.condition), 'condition-preview')); row.append(sourceCaption(entry.source)); root.append(row); }
 }
 function sourceCaption(source = {}) { return el('div', [source.title, source.document_id, source.document_revision ? '文档 V' + source.document_revision : '', source.locator].filter(Boolean).join(' · '), 'source-caption'); }
 function showResults(result) {
@@ -266,7 +297,9 @@ function showResults(result) {
   for (const item of items) {
     const rule = item.rule || item;
     const card = el('article', null, 'result-card'); const header = el('div', null, 'section-heading compact'); header.append(el('h3', rule.name || item.id), badge(item.kind === 'rule' || rule.condition ? '专业规则' : '说明')); card.append(header);
-    card.append(el('div', item.text || item.original_text || '', 'preserve-lines'));
+    const excerpt = item.text || item.original_text || '';
+    card.append(el('p', excerpt.slice(0, 180) + (excerpt.length > 180 ? '…' : ''), 'preserve-lines'));
+    if (excerpt.length > 180) card.append(textDisclosure(excerpt));
     if (rule.condition) card.append(el('div', expression(rule.condition), 'condition-preview'));
     if (item.score !== undefined) card.append(el('small', '检索排序分值：' + Number(item.score).toFixed(4) + '（不是诊断置信度）'));
     card.append(sourceCaption(item.source));
@@ -294,13 +327,13 @@ async function query(mode) {
 }
 document.querySelectorAll('[data-tab]').forEach(node => node.addEventListener('click', () => showTab(node.dataset.tab)));
 for (const type of ['input', 'change']) document.querySelector('.editor-pane').addEventListener(type, event => { if (!event.target.closest('.audit-note, .rule-toolbar')) state.dirty = true; });
-$('connection-form').addEventListener('submit', action(async () => { state.token = $('token').value.trim(); state.access = $('access-mode').value; sessionStorage.setItem('rag-token', state.token); sessionStorage.setItem('rag-access', state.access); await load(); document.querySelector('.connection').open = false; notice('已连接。'); }));
+$('connection-form').addEventListener('submit', action(async () => { state.token = $('token').value.trim(); state.access = $('access-mode').value; sessionStorage.setItem('rag-token', state.token); sessionStorage.setItem('rag-access', state.access); await load(); $('connection-dialog').close(); notice('已连接。'); }));
 $('disconnect').addEventListener('click', () => { sessionStorage.removeItem('rag-token'); sessionStorage.removeItem('rag-access'); location.reload(); });
 $('refresh').addEventListener('click', action(load));
 $('kb-select').addEventListener('change', action(async () => { state.kb = $('kb-select').value || null; await loadKb(); }));
-$('create-kb').addEventListener('submit', action(async event => { requireAdmin(); const data = new FormData(event.target); const kb = await api('/admin/knowledge-bases', {method: 'POST', body: {name: data.get('name')}}); state.kb = kb.id; event.target.reset(); await load(); notice('知识库已创建，可以上传文档。'); }));
+$('create-kb').addEventListener('submit', action(async event => { requireAdmin(); const data = new FormData(event.target); const kb = await api('/admin/knowledge-bases', {method: 'POST', body: {name: data.get('name')}}); state.kb = kb.id; event.target.reset(); $('create-dialog').close(); await load(); notice('知识库已创建，可以上传文档。'); }));
 $('archive-kb').addEventListener('click', action(async () => { requireAdmin(); const kb = state.kbs.find(item => item.id === currentKb()); await api('/admin/knowledge-bases/' + encodeURIComponent(kb.id) + '/archive', {method: 'POST', body: {archived: !kb.archived}}); await load(); notice(kb.archived ? '知识库已恢复。' : '知识库已归档。'); }));
-$('upload-form').addEventListener('submit', action(async event => { requireAdmin(); const body = new FormData(event.target); body.append('kb_id', currentKb()); await waitTask(await api('/admin/documents', {method: 'POST', body}), '解析并提取文档'); event.target.reset(); await loadDocuments(); }));
+$('upload-form').addEventListener('submit', action(async event => { requireAdmin(); const body = new FormData(event.target); body.append('kb_id', currentKb()); $('upload-dialog').close(); await waitTask(await api('/admin/documents', {method: 'POST', body}), '解析并提取文档'); event.target.reset(); await loadDocuments(); }));
 $('review-document').addEventListener('change', action(async () => { if ($('review-document').value) await openDocument($('review-document').value); }));
 $('edit-description').addEventListener('click', () => setEditor('description'));
 $('edit-rules').addEventListener('click', () => setEditor('rules'));
@@ -311,3 +344,25 @@ $('ask').addEventListener('click', action(() => query('answers')));
 $('all-rules').addEventListener('click', action(() => query('rules')));
 $('token').value = state.token; $('access-mode').value = state.access; setAccess();
 if (state.token) action(load)();
+
+const icons = {
+  file:'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h6',
+  check:'M9 5H5v16h14V5h-4 M9 3h6v4H9z M8 14l3 3 5-6',
+  layers:'m12 3 10 5-10 5L2 8z M2 12l10 5 10-5 M2 16l10 5 10-5',
+  search:'M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
+  book:'M12 5v16 M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1',
+  settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z'
+};
+document.querySelectorAll('[data-icon]').forEach(node => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.6'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', icons[node.dataset.icon]); svg.append(path); node.append(svg);
+});
+$('open-settings').addEventListener('click', () => $('connection-dialog').showModal());
+$('new-kb').addEventListener('click', () => $('create-dialog').showModal());
+$('upload-open').addEventListener('click', action(() => { currentKb(); $('upload-dialog').showModal(); }));
+document.querySelectorAll('[data-close]').forEach(node => node.addEventListener('click', () => $(node.dataset.close).close()));
+$('document-filter').addEventListener('input', renderDocuments);
+for (const id of ['block-search', 'block-kind']) $(id).addEventListener(id === 'block-search' ? 'input' : 'change', () => { blockPage = 0; if (state.document) renderDescription(); });
+$('blocks-prev').addEventListener('click', () => { blockPage--; renderDescription(); });
+$('blocks-next').addEventListener('click', () => { blockPage++; renderDescription(); });
+if (!state.token) $('connection-dialog').showModal();

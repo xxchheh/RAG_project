@@ -8,30 +8,38 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><span class="brand-mark">知</span><div><strong>专业知识库</strong><span>文档到可信依据</span></div></div>
-    <div class="top-actions"><span id="connection-state" class="badge">未连接</span><a href="/docs" target="_blank" rel="noopener">接口文档 ↗</a></div>
-  </header>
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="brand-mark">K</span><div><strong>专业知识库</strong><span>知识管理工作台</span></div></a>
+    <p class="nav-caption">工作空间</p>
+    <nav class="tabs" aria-label="工作台功能">
+      <button data-tab="documents" class="active" aria-selected="true"><span class="nav-icon" data-icon="file"></span>文档管理</button>
+      <button data-tab="review" aria-selected="false"><span class="nav-icon" data-icon="check"></span>审核工作台</button>
+      <button data-tab="versions" aria-selected="false"><span class="nav-icon" data-icon="layers"></span>发布与版本</button>
+      <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>检索与问答</button>
+    </nav>
+    <div class="sidebar-bottom"><a href="/docs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="book"></span>接口文档 ↗</a><button id="open-settings" type="button"><span class="nav-icon" data-icon="settings"></span>连接设置<span id="connection-state" class="badge">未连接</span></button></div>
+  </aside>
   <main>
-    <section class="intro"><div><p class="eyebrow">RAG 工作台</p><h1>让知识有来源，让规则可核对。</h1><p>上传资料，审核说明与专业规则，再发布给问答和外部 Agent 使用。</p></div><details class="connection" open><summary>连接设置</summary><form id="connection-form"><label>访问令牌<input id="token" type="password" autocomplete="off" placeholder="输入管理令牌或只读令牌"></label><div class="row"><label>访问方式<select id="access-mode"><option value="admin">管理与审核</option><option value="read">只读查询</option></select></label><button type="submit" class="primary">连接</button><button type="button" id="disconnect" class="quiet">退出</button></div><small>令牌仅保存在当前浏览器会话中，关闭会话后清除。</small></form></details></section>
+    <header class="topbar"><span>工作空间 <span class="breadcrumb-divider">/</span> <strong id="page-name">文档管理</strong></span><span class="muted">专业知识 RAG</span></header>
+    <div class="main-content">
+    <dialog id="connection-dialog"><details class="connection" open><summary>连接设置</summary><p class="muted">输入服务令牌，连接知识库工作空间。</p><form id="connection-form"><label>访问令牌<input id="token" type="password" autocomplete="off" placeholder="输入管理令牌或只读令牌"></label><label>访问方式<select id="access-mode"><option value="admin">管理与审核</option><option value="read">只读查询</option></select></label><small>令牌仅保存在当前浏览器会话中。</small><div class="dialog-actions"><button type="button" data-close="connection-dialog">取消</button><button type="button" id="disconnect" class="quiet">退出连接</button><button type="submit" class="primary">连接</button></div></form></details></dialog>
     <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
     <section class="workspace-bar"><label>当前知识库<select id="kb-select"><option value="">请先连接并选择知识库</option></select></label><span id="kb-summary" class="muted"></span><button id="refresh" type="button" class="quiet">刷新</button></section>
-    <nav class="tabs" aria-label="工作台功能"><button data-tab="documents" class="active" aria-selected="true">01 文档管理</button><button data-tab="review" aria-selected="false">02 审核工作台</button><button data-tab="versions" aria-selected="false">03 发布与版本</button><button data-tab="search" aria-selected="false">04 检索与问答</button></nav>
+
 
     <section id="tab-documents" class="tab-panel">
-      <div class="section-heading"><div><h2>知识库与文档</h2><p>新增文件作为草稿处理；审核和发布后才对外生效。</p></div></div>
-      <div class="two-columns">
-        <article class="panel"><h3>创建知识库</h3><form id="create-kb" class="admin-form"><label>知识库名称<input name="name" required maxlength="100" placeholder="例如：旋转设备机理知识库"></label><button class="primary" type="submit">创建知识库</button></form><hr><button id="archive-kb" type="button" class="danger admin-action">归档当前知识库</button><small>归档状态可通过同一按钮恢复。</small></article>
-        <article class="panel"><h3>上传文档</h3><form id="upload-form" class="admin-form"><label>选择文件<input name="file" type="file" accept=".md,.docx,.pdf" required></label><label>外部文档编号（选填）<input name="external_id" placeholder="用于外部系统同步识别同一份文档"></label><button class="primary" type="submit">上传并处理</button></form><small>支持 Markdown、Word（.docx）及文字型 PDF。扫描件需要先转换为可提取文字的文档。</small></article>
-      </div>
-      <article class="panel list-panel"><div class="section-heading compact"><h3>文档列表</h3><span id="document-count" class="muted"></span></div><div id="document-list" class="empty">选择知识库后查看文档。</div></article>
+      <div class="section-heading"><div><h2>知识库与文档</h2><p>管理资料、跟踪处理状态，并提交审核。</p></div><div class="row"><button id="new-kb" class="admin-action" type="button">创建知识库</button><button id="upload-open" class="primary admin-action" type="button">上传文档</button></div></div>
+      <dialog id="create-dialog"><div class="dialog-heading"><h3>创建知识库</h3><button type="button" data-close="create-dialog" aria-label="关闭">×</button></div>
+        <article><form id="create-kb" class="admin-form"><label>知识库名称<input name="name" required maxlength="100" placeholder="例如：旋转设备机理知识库"></label><button class="primary" type="submit">创建知识库</button></form></article></dialog><dialog id="upload-dialog"><div class="dialog-heading"><h3>上传文档</h3><button type="button" data-close="upload-dialog" aria-label="关闭">×</button></div>
+        <article><form id="upload-form" class="admin-form"><label>选择文件<input name="file" type="file" accept=".md,.docx,.pdf" required></label><label>外部文档编号（选填）<input name="external_id" placeholder="用于外部系统同步识别同一份文档"></label><button class="primary" type="submit">上传并处理</button></form><small>支持 Markdown、Word（.docx）及文字型 PDF。扫描件需要先转换为可提取文字的文档。</small></article></dialog>
+      <article class="panel list-panel"><div class="section-heading compact"><div class="row"><h3>全部文档</h3><span id="document-count" class="muted"></span></div><div class="row"><input id="document-filter" type="search" placeholder="搜索文档名称或编号" aria-label="搜索文档"><button id="archive-kb" type="button" class="quiet admin-action">归档当前知识库</button></div></div><div id="document-list" class="empty">选择知识库后查看文档。</div></article>
       <article id="task-box" class="panel hidden" aria-live="polite"><div class="row"><span class="activity-dot"></span><strong id="task-title">处理中</strong></div><p id="task-detail" class="muted"></p></article>
     </section>
 
     <section id="tab-review" class="tab-panel hidden">
       <div class="section-heading"><div><h2>审核工作台</h2><p>说明按文档整体审核，专业规则逐条审核。编辑后需重新审核；未通过的规则段不进入公共检索。</p></div><label>审核文档<select id="review-document"><option value="">请选择文档</option></select></label></div>
       <div id="review-empty" class="empty panel">从文档列表选择一份文档开始核对。</div>
-      <div id="review-body" class="hidden"><div id="review-meta" class="review-meta"></div><div class="review-grid"><article class="panel source-pane"><div class="section-heading compact"><h3>原文与定位</h3><span class="badge">原始解析文本</span></div><div id="source-blocks"></div></article><article class="panel editor-pane"><div class="subtabs"><button id="edit-description" class="active" type="button">文档说明</button><button id="edit-rules" type="button">专业规则</button></div><div id="description-editor"></div><div id="rules-editor" class="hidden"></div></article></div></div>
+      <div id="review-body" class="hidden"><div id="review-meta" class="review-meta"></div><div class="review-controls"><input id="block-search" type="search" placeholder="搜索原文内容或位置" aria-label="搜索原文块"><select id="block-kind" aria-label="原文块分类"><option value="">全部原文块</option><option value="description">说明内容</option><option value="rule">专业规则段</option><option value="uncertain">待分类</option></select><span id="block-count" class="muted"></span><button id="blocks-prev" type="button">上一页</button><button id="blocks-next" type="button">下一页</button></div><div class="review-grid"><article class="panel source-pane"><div class="section-heading compact"><h3>原文与定位</h3><span class="badge">原始解析文本</span></div><div id="source-blocks"></div></article><article class="panel editor-pane"><div class="subtabs"><button id="edit-description" class="active" type="button">文档说明</button><button id="edit-rules" type="button">专业规则</button></div><div id="description-editor"></div><div id="rules-editor" class="hidden"></div></article></div></div>
     </section>
 
     <section id="tab-versions" class="tab-panel hidden">
@@ -44,7 +52,8 @@
       <article class="panel"><form id="search-form"><label>问题或关键词<textarea id="query" rows="3" placeholder="例如：电机轴承润滑不足有哪些原因和处理措施？"></textarea></label><div class="query-filters"><label>发布版本<select id="query-release"><option value="">当前发布版本</option></select></label><label>设备类型<select id="query-device"><option value="">所有类型</option></select></label><label>检索条数<input id="top-k" type="number" min="1" max="20" value="5"></label></div><div class="row"><button class="primary" type="submit">检索知识</button><button id="ask" type="button">生成带引用的回答</button><button id="all-rules" type="button" class="quiet">获取全部适用规则</button></div></form></article>
       <div id="search-meta" class="result-meta"></div><article id="answer-box" class="panel hidden"><h3>回答</h3><div id="answer-text" class="preserve-lines"></div><div id="answer-citations"></div></article><div id="search-results" class="result-list"></div>
     </section>
-    <footer>专业知识 RAG · 说明有出处，规则有版本 · <span id="service-model">尚未读取服务配置</span></footer>
+    <footer> <span id="service-model">尚未读取服务配置</span></footer>
+    </div>
   </main>
 </body>
 </html>
