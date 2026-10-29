@@ -13,3 +13,5 @@ knowledge/
 *.db-shm
 *.db-wal
 .DS_Store
+data/rag_work/
+*.db-journal

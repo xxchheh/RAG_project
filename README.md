@@ -1,4 +1,19 @@
-# 设备诊断 Agent Demo
+# 专业知识 RAG 服务与设备诊断 Agent Demo
+
+`RAG_work` 新增独立 HTTP 服务和中文管理页面：支持 Markdown、Word、文字型 PDF，分级审核、版本发布、中文语义检索和带引用问答，供外部 Agent 读取知识及完整规则。
+
+```bash
+# 在已安装 requirements.txt 的项目根目录运行
+.venv/bin/python -m rag_service serve
+# 在另一个终端查看本地管理令牌与 Agent 只读令牌
+.venv/bin/python -m rag_service tokens
+```
+
+浏览器打开 **http://127.0.0.1:8000/**，使用管理令牌连接。接口文档在 `/docs`。首次建立索引会下载本地中文模型；对话提取与问答使用已有 `.env`。默认数据独立保存在 `data/rag_work/`。
+
+完整说明见 [独立 RAG 使用与对接](docs/rag_work.md)，上传样本在 [examples/rag_documents](examples/rag_documents)，外部调用示例为 [rag_agent_client.py](examples/rag_agent_client.py)。说明按文档审核、规则逐条审核后分别发布，数值诊断由 Agent 侧执行。
+
+以下保留原有终端 Agent 的使用方式；新服务可独立启动。
 
 在终端用中文指定设备、测点和时间，Agent 调用设备查询、模拟数据读取、机理规则分析和 Word 报告工具。可以继续追问判断依据、切换设备、比较前一时间窗口，也可以查询已发布的机理知识。
 
@@ -9,7 +24,7 @@
 需要 Python 3.11 或以上。首次使用先克隆仓库，再安装依赖：
 
 ```bash
-git clone --branch RAG git@github.com:xxchheh/fault_agent.git
+git clone --branch RAG_work git@github.com:xxchheh/fault_agent.git
 cd fault_agent
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
@@ -25,7 +40,7 @@ test -f .env || cp .env.example .env
 .venv/bin/python -m diagnostic_agent chat
 ```
 
-完成安装和配置后即可使用上面两条命令。输入 `/reset` 清空当前会话，`/exit` 或 Ctrl-D 退出。程序显示每个工具的执行进度。
+完成安装和配置后即可使用上面三条命令。输入 `/reset` 清空当前会话，`/exit` 或 Ctrl-D 退出。程序显示每个工具的执行进度。
 
 ## 演示问句
 

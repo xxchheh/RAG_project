@@ -4,25 +4,7 @@ from __future__ import annotations
 import math
 from .common import ROOT, read_json
 
-METRICS = {
-    "velocity_rms": ("速度有效值", "mm/s"),
-    "acceleration_rms": ("加速度有效值", "m/s²"),
-    "acceleration_peak": ("加速度绝对峰值", "m/s²"),
-    "kurtosis": ("加速度非超额峭度", "1"),
-    "low_frequency_impact": ("低频冲击值", "demo_index"),
-    **{f"h{i}": (f"{i}倍转频速度RMS幅值", "mm/s") for i in range(1, 10)},
-    "bpf1": ("一倍叶片通过频率速度RMS幅值", "mm/s"),
-    "bpf2": ("二倍叶片通过频率速度RMS幅值", "mm/s"),
-}
-DERIVED = {
-    "crest_factor": (["acceleration_peak"], "acceleration_rms"),
-    "h1_ratio": (["h1"], "velocity_rms"),
-    "h2_ratio": (["h2"], "velocity_rms"),
-    "even_ratio": (["h2", "h4", "h6", "h8"], "velocity_rms"),
-    "third_ratio": (["h3", "h6", "h9"], "velocity_rms"),
-    "bpf_ratio": (["bpf1", "bpf2"], "velocity_rms"),
-}
-
+from rag_service.contracts import METRICS, DERIVED
 
 def load_rules(store=None, device_type=None):
     # Local import keeps the executable metric registry independent of storage.
