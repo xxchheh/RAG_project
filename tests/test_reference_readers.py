@@ -1,4 +1,5 @@
 import io
+import os
 import zipfile
 import tempfile
 import unittest
@@ -53,6 +54,14 @@ def pptx_bytes(image_only=False):
 
 
 class ReaderTests(unittest.TestCase):
+    def setUp(self):
+        # These minimal OOXML fixtures exercise the lightweight reader, not
+        # a full Office package accepted by Docling. Keep local installs from
+        # changing which parser this reader regression suite is testing.
+        engine = patch.dict(os.environ, {'RAG_REFERENCE_ENGINE': 'legacy'})
+        engine.start()
+        self.addCleanup(engine.stop)
+
     def test_soft_wraps_lists_and_field_boundaries(self):
         self.assertEqual(paragraphs('检查润滑\n状态。\n机理原因：润滑不足。\n1、检查轴承\n温度。\n2、检查密封。'), ['检查润滑状态。','机理原因：润滑不足。','1、检查轴承温度。','2、检查密封。'])
         self.assertEqual(paragraphs('Check bearing\nlubrication.'), ['Check bearing lubrication.'])

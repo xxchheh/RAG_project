@@ -218,3 +218,11 @@ Agent 工具负责计算；必要数据缺失、单位不符、分母非正时�
 各接口的完整请求与响应示例见 [接口请求与响应样例](agent_api_examples.md)。
 
 参考资料支持文字型/扫描 PDF 和 PPTX。`/capabilities.formats` 新增 `pptx`；检索及详情仍通过 `source.locator` 返回 PDF 页码或幻灯片编号，不增加调用方必填参数。扫描页及幻灯片内嵌位图使用本地OCR，位置标注OCR；数字、单位及复杂图表需人工审核后发布。
+
+## 可选：生成式问答（Wiki 页面）
+
+新增 `POST /api/v1/generated-answers`，沿用 `/retrieve` 的请求参数、只读鉴权及 release_id 约定，无需改变已有调用。它由模型根据检索证据组织回答；原 `/answers` 继续为摘录式回答。
+
+响应沿用 `kb_id/release_id/profile/items/status/answer/citations`，附加 `mode: "grounded_generation"` 及 `model_info: {"provider":"deepseek","model":"实际模型名"}`。无检索证据时 `model_info={}`。`answer` 为模型组织的说明，每段末尾 `[n]` 对应 `citations[n-1]`，`citations.quote` 仍为连续原文。引用合法不等于自动证明生成文字完全正确。
+
+有证据时须配置回答模型；超时、配置或引用校验失败按既有错误约定返回，不伪装为成功。专业规则的获取和执行仍使用 `/rules`，不从生成答案提取新的正式规则。

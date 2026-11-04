@@ -37,32 +37,41 @@ class ModelConfig:
     timeout: float = 90
 
     @classmethod
-    def from_env(cls):
+    def from_env(cls, prefix='LLM'):
         load_dotenv()
-        provider = os.environ.get('LLM_PROVIDER', 'deepseek').lower()
+        provider = os.environ.get(prefix+'_PROVIDER', 'deepseek').strip().lower()
         defaults = {'deepseek': 'https://api.deepseek.com/v1',
                     'qwen': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
                     'openai': 'https://api.openai.com/v1'}
         if provider not in defaults:
-            raise DemoError('LLM_PROVIDER 必须为 deepseek、qwen 或 openai')
+            raise DemoError(prefix+'_PROVIDER 必须为 deepseek、qwen 或 openai')
         aliases = {'deepseek': 'DEEPSEEK_API_KEY', 'qwen': 'DASHSCOPE_API_KEY', 'openai': 'OPENAI_API_KEY'}
-        key = os.environ.get('LLM_API_KEY') or os.environ.get(aliases[provider], '')
-        model = os.environ.get('LLM_MODEL', '')
+        key = os.environ.get(prefix+'_API_KEY') or (os.environ.get(aliases[provider], '') if prefix == 'LLM' else '')
+        model = os.environ.get(prefix+'_MODEL', '')
         if not key or not model:
-            raise DemoError('请在本地 .env 配置 LLM_MODEL 和 LLM_API_KEY；可复制 .env.example。')
-        base = os.environ.get('LLM_BASE_URL') or defaults[provider]
+            raise DemoError(f'请在本地 .env 配置 {prefix}_MODEL 和 {prefix}_API_KEY；可复制 .env.example。')
+        base = os.environ.get(prefix+'_BASE_URL') or defaults[provider]
         parsed = urlsplit(base)
         if parsed.username or parsed.password or parsed.query or parsed.fragment or not parsed.hostname:
-            raise DemoError('LLM_BASE_URL 必须是无凭据、无查询参数的服务地址')
+            raise DemoError(prefix+'_BASE_URL 必须是无凭据、无查询参数的服务地址')
         if parsed.scheme != 'https' and not (parsed.scheme == 'http' and parsed.hostname in ('localhost', '127.0.0.1', '::1')):
             raise DemoError('模型服务必须使用 HTTPS（本机测试除外）')
         try:
-            timeout = float(os.environ.get('LLM_TIMEOUT', '90'))
+            timeout = float(os.environ.get(prefix+'_TIMEOUT', '90'))
             if not 1 <= timeout <= 300:
                 raise ValueError()
         except ValueError:
-            raise DemoError('LLM_TIMEOUT 必须在1到300秒之间') from None
+            raise DemoError(prefix+'_TIMEOUT 必须在1到300秒之间') from None
         return cls(provider, base.rstrip('/'), model, key, timeout)
+
+
+    @classmethod
+    def for_answers(cls):
+        """Opt-in answering config; never reuse another provider's credentials."""
+        load_dotenv()
+        fields = ('PROVIDER', 'BASE_URL', 'MODEL', 'API_KEY', 'TIMEOUT')
+        configured = any(os.environ.get('ANSWER_LLM_'+field, '').strip() for field in fields)
+        return cls.from_env('ANSWER_LLM' if configured else 'LLM')
 
 
 class ChatModel:

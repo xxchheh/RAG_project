@@ -81,12 +81,18 @@ class Query(Publication):
     top_k: int = Field(default=5, ge=1, le=50)
 
 
-def create_app(settings=None, embedder=None, model=None, model_factory=None):
+def create_app(settings=None, embedder=None, model=None, model_factory=None, answer_model_factory=None):
     settings = settings or Settings.from_env()
     store = Store(settings.data_dir, recover_tasks=True)
     embedder = embedder or EmbeddingProvider()
     def get_model():
         return model or (model_factory() if model_factory else ChatModel(ModelConfig.from_env()))
+    def get_answer_model():
+        if answer_model_factory is not None:
+            return answer_model_factory()
+        if model is not None or model_factory is not None:
+            return get_model()
+        return ChatModel(ModelConfig.for_answers())
     app = FastAPI(title='专业知识 RAG 服务', version='1.0.0', description='分级审核、版本化发布、来源检索。专业规则由调用方执行。')
     app.state.store, app.state.embedder = store, embedder
     bearer = HTTPBearer(auto_error=False)
@@ -356,8 +362,15 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
     def answers(body: Query):
         from .retrieval import answer_question
         found=retrieve(body)
-        result=answer_question(body.query,found['items'],None,model_factory=get_model)
+        result=answer_question(body.query,found['items'],None,model_factory=get_answer_model)
         return {**found,**result}
+
+    @app.post(prefix+'/generated-answers', dependencies=read, response_model=wire.GeneratedAnswer, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
+    def generated_answers(body: Query):
+        from .generated_answers import generate_answer
+        found = retrieve(body)
+        result = generate_answer(body.query, found['items'], get_answer_model)
+        return {**found, **result}
 
     @app.get(prefix+'/rules', dependencies=read, response_model=wire.Rules, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def rules(kb_id: str, release_id: str | None = None, device_type: str | None = None):

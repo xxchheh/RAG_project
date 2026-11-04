@@ -1,7 +1,7 @@
 'use strict';
 // All document/model text is rendered through textContent or form values.
 const $ = id => document.getElementById(id);
-const state = {token: sessionStorage.getItem('rag-token') || '', access: sessionStorage.getItem('rag-access') || 'admin', kbs: [], kb: null, documents: [], document: null, releases: [], release: null, capabilities: {}, ruleIndex: 0, editor: 'description', dirty: false};
+const state = {token: sessionStorage.getItem('rag-token') || '', access: sessionStorage.getItem('rag-access') || 'admin', kbs: [], kb: null, documents: [], document: null, releases: [], release: null, capabilities: {}, ruleIndex: 0, editor: 'description', dirty: false, activeTab: 'documents', wikiRules: [], wikiRuleId: null, wikiContext: null, wikiRequest: 0, queryRequest: 0};
 const statusNames = {pending: '待审核', approved: '已通过', rejected: '已退回', queued: '排队中', processing: '处理中', succeeded: '已完成', failed: '处理失败', ready: '已解析', description: '说明', rule: '规则', uncertain: '待分类'};
 const clone = value => JSON.parse(JSON.stringify(value));
 function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined && text !== null) node.textContent = String(text); if (cls) node.className = cls; return node; }
@@ -36,9 +36,11 @@ async function api(path, options = {}) {
 }
 function setAccess() { document.querySelectorAll('.admin-action, .admin-form button, .admin-form input, .admin-form select').forEach(node => { node.disabled = state.access !== 'admin'; }); }
 function showTab(name) {
-  $('page-name').textContent = {documents:'知识管理', review:'内容确认', versions:'历史记录', search:'检索与问答'}[name] || '文档管理';
+  state.activeTab = name;
+  $('page-name').textContent = {documents:'知识管理', review:'内容确认', versions:'历史记录', search:'知识问答', wiki:'专业规则'}[name] || '文档管理';
   document.querySelectorAll('[data-tab]').forEach(node => { const active = node.dataset.tab === (['review', 'versions'].includes(name) ? 'documents' : name); node.classList.toggle('active', active); node.setAttribute('aria-selected', String(active)); });
   document.querySelectorAll('.tab-panel').forEach(node => node.classList.toggle('hidden', node.id !== 'tab-' + name));
+  if (name === 'wiki' && state.token && state.kb && !state.wikiContext) action(loadWiki)();
 }
 function deviceOptions() { const types = state.capabilities.device_types || {motor: '电机', coupling: '联轴器', pump: '水泵', fan: '风机', gearbox: '齿轮箱'}; return Array.isArray(types) ? types.map(key => [key, key]) : Object.entries(types).map(([key, value]) => [key, typeof value === 'string' ? value : value.name || key]); }
 function metricRegistry() {
@@ -62,6 +64,7 @@ async function load() {
   state.kb = state.kbs.some(kb => kb.id === previous) ? previous : state.kbs[0]?.id || null;
   $('kb-select').value = state.kb || '';
   $('query-device').replaceChildren(option('', '所有类型'), ...deviceOptions().map(([key, name]) => option(key, name)));
+  $('wiki-device').replaceChildren(option('', '全部设备类型'), ...deviceOptions().map(([key, name]) => option(key, name)));
   $('connection-state').textContent = state.access === 'admin' ? '管理与审核' : '只读查询'; $('connection-state').className = 'badge ok';
   setAccess(); await loadKb();
   try { const health = await api('/health'); const profile = health.embedding || health.profile || health.embedding_profile || {}; $('service-model').textContent = '向量模式：' + (profile.mode || health.embedding_mode || '按服务配置') + (profile.model ? ' · ' + profile.model : ''); } catch (_) { $('service-model').textContent = '服务已连接'; }
@@ -69,6 +72,10 @@ async function load() {
 async function loadKb() {
   if (state.kb) sessionStorage.setItem('rag-kb', state.kb);
   state.document = null; state.release = null; state.documents = []; state.releases = [];
+  state.queryRequest++; state.wikiRequest++; $('ask').disabled = false; $('retrieve-evidence').disabled = false; state.wikiRules = []; state.wikiRuleId = null; state.wikiContext = null;
+  $('wiki-release').value = ''; $('wiki-release-options').replaceChildren(); $('wiki-meta').textContent = ''; $('wiki-count').textContent = '0 条'; $('wiki-search').value = '';
+  empty($('wiki-list'), '选择知识库后浏览已发布规则。'); empty($('wiki-detail'), '从左侧目录选择一条规则。');
+  $('query-release-id').value = ''; $('answer-box').classList.add('hidden'); $('answer-text').textContent = ''; $('answer-citations').replaceChildren(); $('search-meta').textContent = '';
   const kb = state.kbs.find(item => item.id === state.kb);
   $('kb-summary').textContent = kb ? (kb.current_release ? '已有知识可检索 · 确认更新后自动生效' : '尚未入库 · 上传并确认内容后可检索') : '可先创建一个知识库。';
   $('archive-kb').textContent = kb?.archived ? '恢复当前知识库' : '归档当前知识库';
@@ -77,7 +84,8 @@ async function loadKb() {
   empty($('search-results'), '输入问题，查看已发布知识及引用。');
   if (!state.kb) { empty($('document-list'), '尚无知识库，请先创建。'); empty($('release-list'), '暂无发布记录。'); return; }
   if (state.access === 'admin') { await Promise.all([loadDocuments(), loadReleases()]); }
-  else { empty($('document-list'), '只读模式可在“检索与问答”查询已发布内容。'); empty($('release-list'), '发布管理需要管理令牌。'); showTab('search'); }
+  else { empty($('document-list'), '只读模式可使用知识问答与专业规则目录。'); empty($('release-list'), '发布管理需要管理令牌。'); if (state.activeTab !== 'wiki') showTab('search'); }
+  if (state.activeTab === 'wiki') await loadWiki();
 }
 async function loadDocuments() {
   state.documents = arrayResult(await api('/admin/documents?kb_id=' + encodeURIComponent(currentKb())));
@@ -215,7 +223,7 @@ async function activate(target, note = '', ruleId) {
     try { await waitTask(queued, '准备索引并入库'); }
     catch (error) { throw new Error('确认已保存，但入库未完成：' + errorMessage(error) + '。可直接重试入库，无需重复审核。'); }
     await load(); await openDocument(doc.id); showTab('review');
-    notice(state.document.publication?.entry_count ? '已完成入库，当前发布版本已更新。可在“检索与问答”查看结果；版本已自动保存在历史记录中。' : '确认已保存，当前没有可检索内容。请查看排除页、待核对内容或专业规则；历史记录已自动保存。');
+    notice(state.document.publication?.entry_count ? '已完成入库，当前发布版本已更新。可在“知识问答”查看结果；版本已自动保存在历史记录中。' : '确认已保存，当前没有可检索内容。请查看排除页、待核对内容或专业规则；历史记录已自动保存。');
   } finally {
     unlock();
     // On failure also refresh the new edit version, so retry does not repeat approval.
@@ -377,6 +385,7 @@ async function loadReleases() {
   state.releases = arrayResult(await api('/admin/releases?kb_id=' + encodeURIComponent(currentKb())));
   const list = $('release-list'); list.replaceChildren(); list.classList.remove('empty');
   $('query-release').replaceChildren(option('', '当前发布版本'), ...state.releases.map(release => option(release.id, '发布 V' + release.number + ' · ' + release.created_at)));
+  $('wiki-release-options').replaceChildren(...state.releases.map(release => option(release.id, '发布 V' + release.number + ' · ' + release.created_at)));
   if (!state.releases.length) return empty(list, '暂无发布版本。审核内容后即可首次发布。');
   for (const release of state.releases.slice().sort((a, b) => b.number - a.number)) {
     const node = button('', async () => { state.release = await api('/admin/releases/' + encodeURIComponent(release.id)); renderRelease(); list.querySelectorAll('button').forEach(btn => btn.classList.remove('active')); node.classList.add('active'); }, 'release-item');
@@ -408,26 +417,118 @@ function showResults(result) {
     if (item.score !== undefined) card.append(el('small', '检索排序分值：' + Number(item.score).toFixed(4) + '（不是诊断置信度）'));
     card.append(sourceCaption(item.source));
     const details = el('div');
-    card.append(button('查看完整知识', async () => { const query = new URLSearchParams({kb_id: currentKb()}); if (result.release_id) query.set('release_id', result.release_id); const value = await api('/knowledge/' + encodeURIComponent(item.knowledge_id || item.id) + '?' + query); const knowledge = value.item || value.knowledge || value; details.replaceChildren(el('pre', knowledge.text || knowledge.original_text || '', 'preserve-lines')); if (knowledge.rule?.condition || knowledge.condition) details.append(el('p', expression(knowledge.rule?.condition || knowledge.condition), 'condition-preview')); }, 'quiet'), details);
+    card.append(button('查看完整知识', async () => { const query = new URLSearchParams({kb_id: result.kb_id}); if (result.release_id) query.set('release_id', result.release_id); const value = await api('/knowledge/' + encodeURIComponent(item.knowledge_id || item.id) + '?' + query); const knowledge = value.item || value.knowledge || value; details.replaceChildren(el('pre', knowledge.text || knowledge.original_text || '', 'preserve-lines')); if (knowledge.rule?.condition || knowledge.condition) details.append(el('p', expression(knowledge.rule?.condition || knowledge.condition), 'condition-preview')); }, 'quiet'), details);
     root.append(card);
   }
   $('answer-box').classList.toggle('hidden', !result.answer);
   $('answer-text').textContent = result.answer || '';
+  if (result.model_info?.model) $('search-meta').textContent += ' · 回答模型：' + result.model_info.provider + ' / ' + result.model_info.model;
   const citations = $('answer-citations'); citations.replaceChildren();
-  for (const citation of result.citations || []) { const node = el('div', null, 'citation'); node.append(el('strong', citation.knowledge_id || citation.id || '引用'), el('blockquote', citation.quote || citation.text || ''), sourceCaption(citation.source)); citations.append(node); }
+  for (const [index, citation] of (result.citations || []).entries()) { const node = el('div', null, 'citation'); node.append(el('strong', '[' + (index + 1) + '] ' + (citation.source?.title || citation.knowledge_id || '引用')), el('blockquote', citation.quote || citation.text || ''), sourceCaption(citation.source)); citations.append(node); }
   if (result.status === 'insufficient_evidence') notice('已发布知识中没有足够依据，未生成确定性结论。');
 }
 async function query(mode) {
-  const kb_id = currentKb(); const body = {kb_id, query: $('query').value.trim(), top_k: Number($('top-k').value) || 5};
-  if ($('query-release').value) body.release_id = $('query-release').value;
+  const kb_id = currentKb(); const body = {kb_id, query: $('query').value.trim(), top_k: Number($('top-k').value)};
+  const release_id = $('query-release-id').value.trim() || $('query-release').value;
+  if (release_id) body.release_id = release_id;
   if ($('query-device').value) body.device_type = $('query-device').value;
-  if (mode !== 'rules' && !body.query) throw new Error('请输入问题或关键词。');
-  notice(mode === 'answers' ? '正在检索依据并组织回答…' : '正在读取已发布知识…');
-  $('answer-box').classList.add('hidden'); $('search-meta').textContent = ''; empty($('search-results'), '查询中…');
-  let result;
-  if (mode === 'rules') { const params = new URLSearchParams({kb_id}); if (body.release_id) params.set('release_id', body.release_id); if (body.device_type) params.set('device_type', body.device_type); result = await api('/rules?' + params); }
-  else result = await api('/' + mode, {method: 'POST', body});
-  showResults(result); if (result.status !== 'insufficient_evidence') notice('查询完成。');
+  if (!body.query) throw new Error('请输入问题或关键词。');
+  if (!Number.isInteger(body.top_k) || body.top_k < 1 || body.top_k > 50) throw new Error('检索条数应为1至50的整数。');
+  const request = ++state.queryRequest;
+  notice(mode === 'generated-answers' ? '正在检索依据并由大模型组织回答…' : '正在读取已发布知识…');
+  $('answer-box').classList.add('hidden'); $('answer-text').textContent = ''; $('answer-citations').replaceChildren(); $('search-meta').textContent = ''; empty($('search-results'), '查询中…');
+  const controls = [$('ask'), $('retrieve-evidence')]; controls.forEach(node => node.disabled = true);
+  try {
+    const result = await api('/' + mode, {method: 'POST', body});
+    if (request !== state.queryRequest || kb_id !== state.kb) return;
+    showResults(result); if (result.status !== 'insufficient_evidence') notice(mode === 'generated-answers' ? '大模型回答已完成。' : '检索依据已返回。');
+  } catch (error) {
+    if (request !== state.queryRequest || kb_id !== state.kb) return;
+    empty($('search-results'), '本次查询未完成：' + errorMessage(error));
+    if (mode === 'generated-answers') notice('未能生成大模型回答。可先点击“查看检索依据”；一般问答需在服务端配置回答模型。原因：' + errorMessage(error), true);
+    else notice(errorMessage(error), true);
+  } finally { if (request === state.queryRequest) controls.forEach(node => node.disabled = false); }
+}
+function wikiDeviceName(type) { return deviceOptions().find(([key]) => key === type)?.[1] || type || '未分类'; }
+async function loadWiki() {
+  const kb_id = currentKb(); let release = $('wiki-release').value.trim();
+  const device = $('wiki-device').value;
+  const request = ++state.wikiRequest;
+  state.wikiRules = []; state.wikiRuleId = null; state.wikiContext = null;
+  $('wiki-meta').textContent = ''; $('wiki-count').textContent = '0 条';
+  empty($('wiki-list'), '正在读取完整规则集…'); empty($('wiki-detail'), '正在读取规则…');
+  try {
+    if (!release) {
+      const kbs = await api('/knowledge-bases');
+      if (request !== state.wikiRequest || kb_id !== state.kb) return;
+      const kb = kbs.find(kb => kb.id === kb_id);
+      if (!kb) throw new Error('知识库不存在或已归档。');
+      release = kb.current_release;
+    }
+    if (!release) { empty($('wiki-list'), '当前知识库尚未发布。'); empty($('wiki-detail'), '完成专业规则审核并生效后，可在这里浏览。'); return; }
+    const params = new URLSearchParams({kb_id, release_id: release}); if (device) params.set('device_type', device);
+    const result = await api('/rules?' + params);
+    if (request !== state.wikiRequest || kb_id !== state.kb) return;
+    state.wikiRules = result.rules; state.wikiContext = {kb_id, release_id: result.release_id, schema: result.schema_version};
+    $('wiki-meta').textContent = '发布版本：' + result.release_id + ' · 格式：' + result.schema_version + ' · 完整适用规则 ' + result.count + ' 条';
+    renderWikiDirectory(); notice('已读取 ' + result.count + ' 条已发布规则。');
+  } catch (error) {
+    if (request !== state.wikiRequest || kb_id !== state.kb) return;
+    empty($('wiki-list'), '规则读取失败'); empty($('wiki-detail'), errorMessage(error));
+    $('wiki-meta').textContent = '本次未加载规则，请检查知识库、发布版本或访问权限。';
+    notice(errorMessage(error), true);
+  }
+}
+function renderWikiDirectory() {
+  const term = $('wiki-search').value.trim().toLowerCase();
+  const rules = state.wikiRules.filter(rule => !term || [rule.name, rule.id, ...(rule.phenomena || []), ...(rule.causes || []), ...(rule.actions || []), rule.original_text].join(' ').toLowerCase().includes(term));
+  $('wiki-count').textContent = rules.length + ' / ' + state.wikiRules.length + ' 条';
+  const list = $('wiki-list'); list.replaceChildren();
+  if (!rules.some(rule => rule.id === state.wikiRuleId)) state.wikiRuleId = rules[0]?.id || null;
+  if (!rules.length) { empty(list, term ? '没有匹配的故障规则。' : '此范围没有已发布规则。'); empty($('wiki-detail'), term ? '请调整关键词，或清空搜索。' : '普通参考资料不会自动成为诊断规则。'); return; }
+  for (const [device, label] of deviceOptions()) {
+    const group = rules.filter(rule => rule.device_type === device); if (!group.length) continue;
+    list.append(el('div', label + ' · ' + group.length, 'wiki-group-title'));
+    for (const rule of group) {
+      const item = button('', () => { state.wikiRuleId = rule.id; renderWikiDirectory(); }, 'wiki-rule-link' + (rule.id === state.wikiRuleId ? ' active' : ''));
+      item.setAttribute('aria-pressed', String(rule.id === state.wikiRuleId)); item.dataset.ruleId = rule.id;
+      item.append(el('strong', rule.name), el('small', rule.id)); list.append(item);
+    }
+  }
+  renderWikiDetail(rules.find(rule => rule.id === state.wikiRuleId));
+}
+function renderWikiDetail(rule) {
+  const root = $('wiki-detail'); root.replaceChildren(); if (!rule) return;
+  const context = {...state.wikiContext};
+  const heading = el('div', null, 'section-heading compact'); heading.append(el('h3', rule.name), badge(wikiDeviceName(rule.device_type))); root.append(heading);
+  root.append(el('p', rule.id + ' · 知识修订 ' + rule.knowledge_revision, 'muted'));
+  root.append(el('h4', '判断条件'), el('p', expression(rule.condition), 'condition-preview'));
+  const table = el('table', null, 'wiki-condition-table'); const head = el('thead'); const tr = el('tr'); ['指标', '比较条件', '单位', '所属关系'].forEach(text => tr.append(el('th', text))); head.append(tr); table.append(head); const tbody = el('tbody'); table.append(tbody);
+  const visit = (node, groups = []) => {
+    if (node.all || node.any) { (node.all || node.any).forEach(child => visit(child, [...groups, node.all ? '且：全部满足' : '或：任一满足'])); return; }
+    const row = el('tr'); const metric = state.capabilities.metrics?.[node.metric] || state.capabilities.derived?.[node.metric];
+    const metricCell = el('td'); metricCell.append(el('span', metric?.name || node.metric));
+    if (metric?.numerators?.length && metric.denominator) {
+      const name = id => state.capabilities.metrics?.[id]?.name || id;
+      const numerator = metric.numerators.length === 1 ? name(metric.numerators[0]) : '√(' + metric.numerators.map(id => '(' + name(id) + ')²').join(' + ') + ')';
+      metricCell.append(el('small', '计算方式：' + numerator + ' / ' + name(metric.denominator), 'wiki-formula'));
+    }
+    row.append(metricCell, el('td', ['ge','gt','le','lt'].filter(op => op in node).map(op => ({ge:'≥',gt:'>',le:'≤',lt:'<'}[op]) + ' ' + node[op]).join(' 且 ')), el('td', rule.units?.[node.metric] || '未提供'), el('td', groups.join(' / ') || '单一条件'));
+    tbody.append(row);
+  };
+  visit(rule.condition); const scroll = el('div', null, 'table-scroll'); scroll.append(table); root.append(scroll, el('small', 'all 表示全部满足，any 表示至少一项满足。此处展示规则，不执行设备诊断。', 'muted'));
+  for (const [key, label] of [['phenomena','机理现象'],['causes','可能原因'],['actions','处理措施'],['notes','原文说明'],['review_notes','审核说明']]) {
+    if (!rule[key]?.length) continue;
+    const section = el('section', null, 'wiki-content-section'); section.append(el('h4', label)); const list = el('ul'); rule[key].forEach(text => list.append(el('li', text))); section.append(list); root.append(section);
+  }
+  const original = el('section', null, 'wiki-content-section'); original.append(el('h4', '规则原文'), el('p', rule.original_text, 'preserve-lines')); root.append(original);
+  const source = el('section', null, 'wiki-content-section'); source.append(el('h4', '来源与版本'), sourceCaption(rule.source), el('small', context.release_id, 'muted'));
+  if (rule.source?.original_quote) source.append(textDisclosure(rule.source.original_quote, '查看来源摘录'));
+  const full = el('div');
+  source.append(button('查看完整知识', async () => {
+    const value = await api('/knowledge/' + encodeURIComponent(rule.knowledge_id) + '?' + new URLSearchParams({kb_id: context.kb_id, release_id: context.release_id}));
+    full.replaceChildren(el('pre', value.item.text, 'preserve-lines'));
+  }, 'quiet'), full); root.append(source);
 }
 document.querySelectorAll('[data-tab]').forEach(node => node.addEventListener('click', () => showTab(node.dataset.tab)));
 for (const type of ['input', 'change']) document.querySelector('.editor-pane').addEventListener(type, event => { if (!event.target.closest('.audit-note, .rule-toolbar')) state.dirty = true; });
@@ -443,9 +544,12 @@ $('edit-description').addEventListener('click', () => setEditor('description'));
 $('edit-rules').addEventListener('click', () => setEditor('rules'));
 for (const [id, path, title] of [['publish', 'publish', '发布知识库'], ['reindex', 'reindex', '重建索引并发布']]) $(id).addEventListener('click', action(async () => { requireAdmin(); if (path === 'publish' && !confirm('此高级操作会发布本知识库全部已审核草稿，并应用待停用文档。日常使用请在单份文档中确认入库。继续？')) return; await waitTask(await api('/admin/' + path, {method: 'POST', body: {kb_id: currentKb()}}), title); await load(); showTab('versions'); }));
 $('restore').addEventListener('click', action(async () => { requireAdmin(); if (!state.release) return; if (!confirm('恢复会创建新发布版本，并将当前草稿审核状态重置为待审核；草稿内容保留。继续恢复？')) return; await waitTask(await api('/admin/restore', {method: 'POST', body: {kb_id: currentKb(), release_id: state.release.id}}), '恢复为新的发布版本'); await load(); showTab('versions'); }));
-$('search-form').addEventListener('submit', action(() => query('retrieve')));
-$('ask').addEventListener('click', action(() => query('answers')));
-$('all-rules').addEventListener('click', action(() => query('rules')));
+$('search-form').addEventListener('submit', action(() => query('generated-answers')));
+$('retrieve-evidence').addEventListener('click', action(() => query('retrieve')));
+$('wiki-refresh').addEventListener('click', action(loadWiki));
+$('wiki-device').addEventListener('change', action(loadWiki));
+$('wiki-release').addEventListener('change', action(loadWiki));
+$('wiki-search').addEventListener('input', renderWikiDirectory);
 $('token').value = state.token; $('access-mode').value = state.access; setAccess();
 if (state.token) action(load)();
 

@@ -13,7 +13,8 @@
     <p class="nav-caption">工作空间</p>
     <nav class="tabs" aria-label="工作台功能">
       <button data-tab="documents" class="active" aria-selected="true"><span class="nav-icon" data-icon="file"></span>知识管理</button>
-      <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>检索与问答</button>
+      <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>知识问答</button>
+      <button data-tab="wiki" aria-selected="false"><span class="nav-icon" data-icon="book"></span>专业规则</button>
     </nav>
     <div class="sidebar-bottom"><a href="/docs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="book"></span>接口文档 ↗</a><button id="open-settings" type="button"><span class="nav-icon" data-icon="settings"></span>连接设置<span id="connection-state" class="badge">未连接</span></button></div>
   </aside>
@@ -49,9 +50,20 @@
     </section>
 
     <section id="tab-search" class="tab-panel hidden">
-      <div class="section-heading"><div><h2>检索与问答试验</h2><p>说明检索返回相关依据；规则查询返回该设备类型的全部已发布规则，供 Agent 侧执行。</p></div></div>
-      <article class="panel"><form id="search-form"><label>问题或关键词<textarea id="query" rows="3" placeholder="例如：电机轴承润滑不足有哪些原因和处理措施？"></textarea></label><div class="query-filters"><label>发布版本<select id="query-release"><option value="">当前发布版本</option></select></label><label>设备类型<select id="query-device"><option value="">所有类型</option></select></label><label>检索条数<input id="top-k" type="number" min="1" max="20" value="5"></label></div><div class="row"><button class="primary" type="submit">检索知识</button><button id="ask" type="button">生成带引用的回答</button><button id="all-rules" type="button" class="quiet">获取全部适用规则</button></div></form></article>
-      <div id="search-meta" class="result-meta"></div><article id="answer-box" class="panel hidden"><h3>回答</h3><div id="answer-text" class="preserve-lines"></div><div id="answer-citations"></div></article><div id="search-results" class="result-list"></div>
+      <div class="section-heading"><div><h2>知识问答</h2><p>围绕已发布知识提问，查看回答依据和原文来源。</p></div><span class="badge">大模型问答</span></div>
+      <article class="panel question-panel"><form id="search-form"><label for="query">你的问题</label><textarea id="query" rows="3" maxlength="4000" placeholder="例如：电机轴承润滑不足有哪些原因和处理措施？"></textarea>
+        <details class="text-details question-options"><summary>查询范围与条数</summary><div class="query-filters"><label>发布版本<select id="query-release"><option value="">当前发布版本</option></select></label><label>设备类型<select id="query-device"><option value="">所有类型</option></select></label><label>检索条数<input id="top-k" type="number" min="1" max="50" value="5"></label></div><label>指定发布版本编号（选填，优先于上方选择）<input id="query-release-id" placeholder="输入已知 release_id，可查询历史版本"></label></details>
+        <div class="row"><button id="ask" class="primary" type="submit">生成回答</button><button id="retrieve-evidence" type="button">查看检索依据</button></div>
+      </form><details class="text-details model-reservation"><summary>回答模型配置</summary><p class="muted">已预留 DeepSeek、Qwen 服务端配置（ANSWER_LLM_*），密钥不在浏览器填写。大模型根据问题综合检索证据组织回答，并附原文引用。未设置独立配置时沿用 LLM_*。未配置模型时仍可查看检索依据。</p></details></article>
+      <div id="search-meta" class="result-meta"></div><article id="answer-box" class="panel hidden"><div class="section-heading compact"><h3>回答</h3><span class="badge">附原文引用</span></div><div id="answer-text" class="preserve-lines"></div><details class="text-details" open><summary>引用来源</summary><div id="answer-citations"></div></details></article><div class="evidence-heading"><h3>检索依据</h3><span class="muted">仅展示本次命中内容，检索分数不代表诊断置信度。</span></div><div id="search-results" class="result-list"></div>
+    </section>
+
+    <section id="tab-wiki" class="tab-panel hidden">
+      <div class="section-heading"><div><h2>专业规则</h2><p>按设备浏览已审核生效的故障规则，查看完整判据、原因、措施与来源。</p></div><span class="badge">只读规则目录</span></div>
+      <div class="wiki-toolbar"><label>设备类型<select id="wiki-device"><option value="">全部设备类型</option></select></label><label class="wiki-search-label">查找故障或关键词<input id="wiki-search" type="search" placeholder="例如：轴承、转子不平衡、润滑" maxlength="200"></label><button id="wiki-refresh" type="button">刷新规则</button></div>
+      <details class="text-details wiki-version-options"><summary>历史版本与规则格式</summary><label>发布版本编号（留空使用当前版本）<input id="wiki-release" list="wiki-release-options" placeholder="当前发布版本"><datalist id="wiki-release-options"></datalist></label><p class="muted">同一目录固定使用一个发布版本；历史编号不存在时显示错误，不自动替换成当前版本。规则由 Agent 侧工具执行数值判断。</p></details>
+      <div id="wiki-meta" class="result-meta"></div>
+      <div class="wiki-layout"><aside class="wiki-directory"><div class="wiki-directory-heading"><h3>故障目录</h3><span id="wiki-count" class="muted">0 条</span></div><div id="wiki-list" class="wiki-list"><div class="empty">选择知识库后浏览规则。</div></div></aside><article id="wiki-detail" class="wiki-detail"><div class="empty">从左侧目录选择一条规则。</div></article></div>
     </section>
     <footer> <span id="service-model">尚未读取服务配置</span></footer>
     </div>

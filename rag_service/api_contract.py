@@ -146,6 +146,11 @@ class Answer(Retrieval):
     citations: list[Citation]
 
 
+class GeneratedAnswer(Answer):
+    mode: Literal['grounded_generation']
+    model_info: dict[str, str]
+
+
 class Rules(Output):
     kb_id: str
     release_id: str
