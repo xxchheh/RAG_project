@@ -38,7 +38,7 @@ def parse(content, filename, cache_root, progress=None):
     blocks = load_blocks(folder, manifest['pages'], filename)
     return {'filename': filename, 'sha256': digest, 'document_type': 'reference', 'suggested_type': 'reference',
             'parser_version': parser_id(), 'artifact_key': key, 'pages': manifest,
-            'blocks': blocks, 'rules': [], 'warnings': ['Docling结构化提取；OCR、公式和表格必须对照页面审核，未生成诊断规则。',
+            'blocks': blocks, 'rules': [], 'warnings': ['Docling结构化提取；可对照原页抽查OCR及表格，公式等待核对内容暂不进入检索，未生成诊断规则。',
                 '公式与插图识别不保证正确；原页面及解析JSON已保留。图片不生成未经来源支持的解释。',
                 '待核对图像页：'+str(manifest.get('unresolved_pages', {}))]}
 

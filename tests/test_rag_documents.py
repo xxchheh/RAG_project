@@ -184,13 +184,13 @@ class RagDocumentsTests(unittest.TestCase):
 
     def test_original_sixteen_rule_document_remains_importable(self):
         root = Path(__file__).resolve().parents[1]
-        rules = json.loads((root / 'diagnostic_agent/config/rules.json').read_text())['rules']
+        rules = json.loads((root / 'rag_service/assets/rules.json').read_text())['rules']
         class ReferenceModel:
             def complete(self, messages):
                 source = ''.join(b['text'] for b in json.loads(messages[1]['content'])['untrusted_blocks'])
                 selected = [copy.deepcopy(r) for r in rules if ''.join(r['original_text'].split()) in ''.join(source.split())]
                 return {'content': json.dumps({'rules': selected}, ensure_ascii=False)}
-        result = parse_document((root / 'diagnostic_agent/assets/rules_reference.docx').read_bytes(), 'reference.docx', ReferenceModel())
+        result = parse_document((root / 'rag_service/assets/rules_reference.docx').read_bytes(), 'reference.docx', ReferenceModel())
         self.assertEqual(len(result['rules']), 16)
         self.assertTrue(all(r['valid'] for r in result['rules']), [r['validation_errors'] for r in result['rules']])
         referenced = {block_id for rule in result['rules'] for block_id in rule['block_ids']}

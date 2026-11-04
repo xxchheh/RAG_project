@@ -965,3 +965,11 @@ footer {
   #document-type-filter { width: 100%; }
   .fault-navigation label { min-width: 0; width: 100%; }
 }
+
+.overview-counts { font-weight: 500; margin: 16px 0 8px; }
+.overview-warning { color: var(--amber); padding-left: 12px; border-left: 2px solid #fbbf24; font-size: 12px; }
+.overview-actions { margin-top: 20px; flex-wrap: wrap; }
+#reference-summary .text-details input { margin-top: 8px; }
+.advanced-operations { max-width: 400px; }
+.advanced-operations summary { cursor: pointer; color: var(--muted); }
+#task-box { margin: 0 0 24px; }

@@ -16,7 +16,7 @@ def import_legacy(store, kb_id, database=None):
             rows=c.execute('SELECT v.body,v.source FROM rules r JOIN rule_revisions v ON v.rule_id=r.id AND v.revision=r.published_revision WHERE r.enabled=1').fetchall()
         rules=[{**json.loads(body),'legacy_source':{k:v for k,v in json.loads(source).items() if k!='file'}} for body,source in rows]
     else:
-        source=Path(__file__).resolve().parent.parent/'diagnostic_agent/config/rules.json'
+        source=Path(__file__).resolve().parent.parent/'rag_service/assets/rules.json'
         value=json.loads(source.read_text())
         rules=[{**r,'legacy_source':{k:v for k,v in value['source'].items() if k!='file'}} for r in value['rules']]
     blocks=[]

@@ -50,6 +50,18 @@ class Review(Input):
     note: str = Field(default='', max_length=2000)
 
 
+class Confirmation(Input):
+    expected_version: int = Field(ge=1)
+    target: Literal['description', 'rule']
+    rule_id: str | None = None
+    note: str = Field(default='', max_length=2000)
+    excluded_pages: list[int] | None = Field(default=None, max_length=10000)
+
+
+class DocumentPublication(Input):
+    expected_version: int = Field(ge=1)
+
+
 class Reprocess(Input):
     document_type: Literal['auto', 'rules', 'reference'] = 'auto'
 
@@ -147,7 +159,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
 
     @app.get(prefix+'/admin/documents', dependencies=admin)
     def documents(kb_id: str):
-        return store.documents(kb_id)
+        return [{**doc, 'publication': store.publication_status(doc['id'])} for doc in store.documents(kb_id)]
 
     def process_file(task_id, document_id, revision, content, filename, document_type="auto"):
         try:
@@ -201,7 +213,8 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
 
     @app.get(prefix+'/admin/documents/{document_id}', dependencies=admin)
     def get_document(document_id: str):
-        return store.document(document_id)
+        doc = store.document(document_id)
+        return {**doc, 'publication': store.publication_status(document_id)}
 
     @app.get(prefix+'/admin/documents/{document_id}/processing', dependencies=admin)
     def processing_detail(document_id: str):
@@ -269,19 +282,38 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None):
     def task(task_id: str):
         return store.task(task_id)
 
-    def publish_job(task_id, kb_id, restore_id=None, reindex=False):
+    def publish_job(task_id, kb_id, restore_id=None, reindex=False, scope=None):
         try:
             store.set_task(task_id, 'processing', '准备索引并发布')
-            result = store.publish(kb_id, embedder, restore_id, reindex)
+            result = store.publish(kb_id, embedder, restore_id, reindex, **(scope or {}))
             store.set_task(task_id, 'succeeded', '已发布', {k:v for k,v in result.items() if k!='entries'})
         except Exception as exc:
             message = str(exc) if isinstance(exc, ValueError) else '索引构建或发布失败，原发布版本仍可使用'
             store.set_task(task_id, 'failed', '发布失败', error=message)
 
-    def enqueue_publish(background, kb_id, restore_id=None, reindex=False):
+    def enqueue_publish(background, kb_id, restore_id=None, reindex=False, scope=None):
         task_id=store.new_task()
-        background.add_task(publish_job, task_id, kb_id, restore_id, reindex)
+        background.add_task(publish_job, task_id, kb_id, restore_id, reindex, scope)
         return {'task_id':task_id}
+
+    @app.post(prefix+'/admin/documents/{document_id}/confirm', dependencies=admin, status_code=202)
+    def confirm_document(document_id: str, body: Confirmation, background: BackgroundTasks):
+        doc = store.document(document_id)
+        if doc['disabled']:
+            raise HTTPException(409, '请先恢复使用此文档')
+        reviewed = store.review(document_id, body.expected_version, body.target, 'approved',
+            body.rule_id, body.note, body.excluded_pages, reuse_approval=True)
+        return {**enqueue_publish(background, reviewed['kb_id'], scope={
+            'document_id': document_id, 'target': body.target, 'rule_id': body.rule_id,
+            'expected_version': reviewed['edit_version']}), 'edit_version': reviewed['edit_version']}
+
+    @app.post(prefix+'/admin/documents/{document_id}/publish', dependencies=admin, status_code=202)
+    def publish_document(document_id: str, body: DocumentPublication, background: BackgroundTasks):
+        doc = store.document(document_id)
+        if doc['edit_version'] != body.expected_version:
+            raise HTTPException(409, '文档已变化，请刷新后重试')
+        return enqueue_publish(background, doc['kb_id'], scope={
+            'document_id': document_id, 'expected_version': body.expected_version})
 
     @app.post(prefix+'/admin/publish', dependencies=admin, status_code=202)
     def publish(body: Publication, background: BackgroundTasks):

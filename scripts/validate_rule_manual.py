@@ -7,7 +7,7 @@ from rag_service.config import Settings
 from rag_service.app import create_app
 from rag_service.embeddings import EmbeddingProvider, EmbeddingConfig
 parser = argparse.ArgumentParser(description='在临时库验收标准机理 Word，使用真实本地向量，不需要对话密钥')
-parser.add_argument('--document', type=Path, default=ROOT/'diagnostic_agent/assets/rules_reference.docx')
+parser.add_argument('--document', type=Path, default=ROOT/'rag_service/assets/rules_reference.docx')
 parser.add_argument('--cache-dir', type=Path, default=ROOT/'data/rag_work/models')
 parser.add_argument('--output', type=Path, default=ROOT/'outputs/rule-manual-validation.json')
 args = parser.parse_args()

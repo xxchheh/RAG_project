@@ -8,7 +8,7 @@ function el(tag, text, cls) { const node = document.createElement(tag); if (text
 function empty(node, text) { node.replaceChildren(el('div', text, 'empty')); }
 function notice(message, error = false) { $('notice').textContent = message; $('notice').className = 'notice' + (error ? ' error' : ''); }
 function errorMessage(error) { return error?.message || String(error); }
-function action(fn) { return async event => { event?.preventDefault(); try { await fn(event); } catch (error) { notice(errorMessage(error), true); } }; }
+function action(fn) { return async event => { event?.preventDefault(); const node = event?.currentTarget; if (node?.dataset.running) return; if (node) node.dataset.running = 'true'; try { await fn(event); } catch (error) { notice(errorMessage(error), true); } finally { if (node) delete node.dataset.running; } }; }
 function badge(text, type = '') { return el('span', statusNames[text] || text || '待审核', 'badge ' + type); }
 function reviewBadge(status) { return badge(status || 'pending', status === 'approved' ? 'ok' : status === 'rejected' ? 'error' : 'warn'); }
 function button(text, callback, cls = '') { const node = el('button', text, cls); node.type = 'button'; node.addEventListener('click', action(callback)); return node; }
@@ -36,8 +36,8 @@ async function api(path, options = {}) {
 }
 function setAccess() { document.querySelectorAll('.admin-action, .admin-form button, .admin-form input, .admin-form select').forEach(node => { node.disabled = state.access !== 'admin'; }); }
 function showTab(name) {
-  $('page-name').textContent = {documents:'文档管理', review:'审核工作台', versions:'发布与版本', search:'检索与问答'}[name] || '文档管理';
-  document.querySelectorAll('[data-tab]').forEach(node => { const active = node.dataset.tab === name; node.classList.toggle('active', active); node.setAttribute('aria-selected', String(active)); });
+  $('page-name').textContent = {documents:'知识管理', review:'内容确认', versions:'历史记录', search:'检索与问答'}[name] || '文档管理';
+  document.querySelectorAll('[data-tab]').forEach(node => { const active = node.dataset.tab === (['review', 'versions'].includes(name) ? 'documents' : name); node.classList.toggle('active', active); node.setAttribute('aria-selected', String(active)); });
   document.querySelectorAll('.tab-panel').forEach(node => node.classList.toggle('hidden', node.id !== 'tab-' + name));
 }
 function deviceOptions() { const types = state.capabilities.device_types || {motor: '电机', coupling: '联轴器', pump: '水泵', fan: '风机', gearbox: '齿轮箱'}; return Array.isArray(types) ? types.map(key => [key, key]) : Object.entries(types).map(([key, value]) => [key, typeof value === 'string' ? value : value.name || key]); }
@@ -57,7 +57,7 @@ async function load() {
   if (!state.token) throw new Error('请先输入访问令牌。');
   const [kbs, caps] = await Promise.all([api(state.access === 'admin' ? '/admin/knowledge-bases' : '/knowledge-bases'), api('/capabilities')]);
   state.kbs = arrayResult(kbs); state.capabilities = caps;
-  const previous = state.kb;
+  const previous = state.kb || sessionStorage.getItem('rag-kb');
   $('kb-select').replaceChildren(option('', '选择知识库'), ...state.kbs.map(kb => option(kb.id, kb.name + (kb.archived ? '（已归档）' : ''))));
   state.kb = state.kbs.some(kb => kb.id === previous) ? previous : state.kbs[0]?.id || null;
   $('kb-select').value = state.kb || '';
@@ -67,9 +67,10 @@ async function load() {
   try { const health = await api('/health'); const profile = health.embedding || health.profile || health.embedding_profile || {}; $('service-model').textContent = '向量模式：' + (profile.mode || health.embedding_mode || '按服务配置') + (profile.model ? ' · ' + profile.model : ''); } catch (_) { $('service-model').textContent = '服务已连接'; }
 }
 async function loadKb() {
+  if (state.kb) sessionStorage.setItem('rag-kb', state.kb);
   state.document = null; state.release = null; state.documents = []; state.releases = [];
   const kb = state.kbs.find(item => item.id === state.kb);
-  $('kb-summary').textContent = kb ? '当前发布版本：' + (kb.current_release || '尚未发布') : '可先创建一个知识库。';
+  $('kb-summary').textContent = kb ? (kb.current_release ? '已有知识可检索 · 确认更新后自动生效' : '尚未入库 · 上传并确认内容后可检索') : '可先创建一个知识库。';
   $('archive-kb').textContent = kb?.archived ? '恢复当前知识库' : '归档当前知识库';
   $('review-body').classList.add('hidden'); $('review-empty').classList.remove('hidden');
   $('query-release').replaceChildren(option('', '当前发布版本')); $('restore').classList.add('hidden');
@@ -97,18 +98,24 @@ function renderDocuments() {
   for (const doc of docs) {
     const row = el('tr');
     const title = el('td'); title.append(el('div', doc.title, 'doc-title'), el('small', ({rules:'机理规则文档',reference:'普通参考文档',auto:'自动识别'}[doc.document_type] || '历史文档') + ' · 修订 V' + doc.latest_revision + (doc.external_id ? ' · 外部编号 ' + doc.external_id : '')));
-    const status = el('td'); status.append(badge(doc.disabled ? '待停用／已停用' : statusNames[doc.status] || doc.status || '待审核', doc.disabled ? 'warn' : ''), el('small', '说明：' + (statusNames[doc.description_status] || doc.description_status || '待审核')));
+    const published = doc.publication || {};
+    const label = doc.disabled ? (published.entry_count ? '停用待同步' : '已停用') : doc.status !== 'ready' ? (statusNames[doc.status] || doc.status) : published.entry_count && !published.pending_changes && published.current_revision_count ? '已入库，可检索' : published.entry_count ? '更新待确认／部分已入库' : doc.description_status === 'approved' ? '已确认，待入库' : '待确认';
+    const status = el('td'); status.append(badge(label, label === '已入库，可检索' ? 'ok' : ''));
     const actions = el('div', null, 'doc-actions');
-    actions.append(button('查看与审核', async () => { await openDocument(doc.id); showTab('review'); }));
+    if (doc.disabled && published.entry_count) actions.append(button('重试停用', () => publishOnlyDocument(doc)));
+    actions.append(button(doc.status === 'ready' ? '查看与确认' : '查看处理情况', async () => { await openDocument(doc.id); showTab('review'); }));
     const file = input('', 'file'); file.accept = '.md,.docx,.pdf,.pptx'; file.className = 'file-input'; file.setAttribute('aria-label', '选择替换 ' + doc.title + ' 的文件');
     file.addEventListener('change', action(async () => { if (!file.files.length) return; const body = new FormData(); body.append('file', file.files[0]); await waitTask(await api('/admin/documents/' + encodeURIComponent(doc.id) + '/revisions', {method: 'POST', body}), '处理文档新版本'); await loadDocuments(); }));
-    actions.append(button('重新解析', () => { reprocessDocumentId = doc.id; $('reprocess-title').textContent = doc.title; $('reprocess-type').value = doc.document_type || 'auto'; $('reprocess-dialog').showModal(); }, 'quiet'), button('替换', () => file.click(), 'quiet'), file, button(doc.disabled ? '恢复使用' : '停用', async () => { await api('/admin/documents/' + encodeURIComponent(doc.id) + '/disable', {method: 'POST', body: {disabled: !doc.disabled}}); notice('已更新文档状态，请到“发布与版本”发布后对外生效。'); await loadDocuments(); }, doc.disabled ? '' : 'danger'));
+    actions.append(button('重新解析', () => { reprocessDocumentId = doc.id; $('reprocess-title').textContent = doc.title; $('reprocess-type').value = doc.document_type || 'auto'; $('reprocess-dialog').showModal(); }, 'quiet'), button('替换', () => file.click(), 'quiet'), file, button(doc.disabled ? '恢复使用' : '停用', async () => { if (!confirm(doc.disabled ? '恢复此文档已审核的内容并自动入库？' : '停用后此文档将从当前检索中移除，历史版本保留。继续？')) return;
+      await api('/admin/documents/' + encodeURIComponent(doc.id) + '/disable', {method: 'POST', body: {disabled: !doc.disabled}});
+      const updated = await api('/admin/documents/' + encodeURIComponent(doc.id));
+      await publishOnlyDocument(updated); }, doc.disabled ? '' : 'danger'));
     const actionCell = el('td'); actionCell.append(actions); row.append(title, status, actionCell); body.append(row);
   }
 }
 async function waitTask(response, title) {
   if (!response.task_id) { notice(title + '已完成。'); return response; }
-  $('task-box').classList.remove('hidden'); $('task-title').textContent = title; showTab('documents');
+  $('task-box').classList.remove('hidden'); $('task-title').textContent = title;
   let attempt = 0;
   while (attempt++ < 900) {
     const task = await api('/admin/tasks/' + encodeURIComponent(response.task_id));
@@ -123,13 +130,14 @@ async function openDocument(id) {
   if (state.dirty && !confirm('当前文档有未保存的修改，确定切换文档？')) { $('review-document').value = state.document.id; return; }
   state.document = await api('/admin/documents/' + encodeURIComponent(id)); state.ruleIndex = 0; blockPage = 0; $('block-search').value = ''; $('block-kind').value = '';
   $('review-document').value = id; $('source-preview').classList.add('hidden'); $('processing-output').textContent = ''; renderReview();
+  $('inspection').classList.toggle('hidden', state.document.payload.document_type === 'reference');
 }
 function renderReview() {
   const doc = state.document; if (!doc) return;
   state.dirty = false;
   doc.payload ||= {blocks: [], rules: []}; doc.payload.blocks ||= []; doc.payload.rules ||= [];
   $('review-body').classList.remove('hidden'); $('review-empty').classList.add('hidden');
-  $('review-meta').replaceChildren(el('strong', doc.title), badge('文档 V' + doc.latest_revision), reviewBadge(doc.description_status), el('span', '编辑版本 ' + doc.edit_version, 'muted'));
+  $('review-meta').replaceChildren(el('strong', doc.title), badge('文档 V' + doc.latest_revision), doc.payload.document_type === 'reference' ? badge(doc.description_status === 'approved' ? '已确认' : '待确认', doc.description_status === 'approved' ? 'ok' : 'warn') : reviewBadge(doc.description_status));
   $('review-meta').append(button('下载原文', async () => {
     const response = await fetch('/api/v1/admin/documents/' + encodeURIComponent(doc.id) + '/original', {headers: {Authorization: 'Bearer ' + state.token}});
     if (!response.ok) throw new Error('原文下载失败，请检查访问权限。');
@@ -145,9 +153,82 @@ function renderReview() {
   $('fault-navigation').classList.toggle('hidden', !structured);
   $('fault-select').replaceChildren(...doc.payload.rules.map((r, i) => option(String(i), (deviceOptions().find(([key]) => key === r.device_type)?.[1] || '') + ' / ' + r.name)));
   $('fault-select').value = String(state.ruleIndex);
-  renderDescription(); renderRules(); setEditor(state.editor);
+  renderOverview(); renderDescription(); renderRules(); setEditor(state.editor);
 }
 function setEditor(name) { state.editor = name; $('description-editor').classList.toggle('hidden', name !== 'description'); $('rules-editor').classList.toggle('hidden', name !== 'rules'); $('edit-description').classList.toggle('active', name === 'description'); $('edit-rules').classList.toggle('active', name === 'rules'); }
+function inspectContent(kind = '', rules = false) {
+  $('inspection').classList.remove('hidden'); $('block-kind').value = kind; blockPage = 0;
+  renderDescription(); setEditor(rules ? 'rules' : 'description');
+  $('inspection').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function renderOverview() {
+  const doc = state.document, payload = doc.payload, root = $('reference-summary'); root.replaceChildren();
+  const reference = payload.document_type === 'reference';
+  const blocks = payload.blocks.filter(b => !b.excluded);
+  const total = Math.max(0, ...payload.blocks.map(b => Number(b.page) || 0), /\.pdf$/i.test(doc.file_name) ? Number(payload.pages?.total) || 0 : 0);
+  const uncertain = blocks.filter(b => b.kind === 'uncertain').length;
+  const descriptions = blocks.filter(b => b.kind === 'description').length;
+  root.append(el('h3', reference ? '整份资料确认，无需逐页审核' : '说明整份确认，规则按条目审核'));
+  root.append(el('p', (total ? '共 ' + total + ' 页／幻灯片 · ' : '') + descriptions + ' 块说明 · ' + uncertain + ' 块待核对 · ' + payload.rules.length + ' 条专业规则', 'overview-counts'));
+  root.append(el('p', reference ? '确认后自动准备索引并入库。可先抽查重点内容；无需翻完全部页面。确认表示允许参考内容用于检索，不表示已逐字校对。' : '说明与规则分别确认。专业规则仍需逐条核对指标、单位、阈值和且／或关系，未审核规则不会生效。', 'muted'));
+  const unresolved = Object.keys(payload.pages?.unresolved_pages || {});
+  const failed = Object.keys(payload.pages?.failed_pages || {});
+  if (uncertain || unresolved.length || failed.length) root.append(el('p', '暂不进入检索：' + uncertain + ' 块待核对内容' + (unresolved.length ? '；未识别页 ' + unresolved.join('、') : '') + (failed.length ? '；失败页 ' + failed.join('、') : '') + '。不阻挡其余可用正文入库。', 'overview-warning'));
+  const pub = doc.publication || {};
+  root.append(el('p', pub.entry_count ? '当前有 ' + pub.entry_count + ' 条内容可检索' + (pub.pending_changes ? '，本次变更尚未全部生效。' : '。') : '此文档尚无可检索内容。', 'muted'));
+  if (reference && total) {
+    const advanced = el('details', null, 'text-details'); advanced.append(el('summary', '按页排除内容（选填）'));
+    const exclusions = input((payload.excluded_pages || []).join(', ')); exclusions.id = 'excluded-pages'; exclusions.placeholder = '例如：12, 15-18（PDF物理页码／幻灯片编号）';
+    advanced.append(field('以下页面暂不入库，原文件与历史版本保留', exclusions)); root.append(advanced);
+  }
+  const actions = el('div', null, 'row overview-actions');
+  const confirm = button(doc.description_status === 'approved' ? '确认／重试入库' : '确认入库', () => activate('description'), 'primary'); confirm.disabled = doc.status !== 'ready' || !!doc.disabled;
+  actions.append(confirm, button('查看需关注内容', () => inspectContent('attention')), button('查看全部内容', () => inspectContent('')));
+  if (payload.rules.length) actions.append(button('核对专业规则（' + payload.rules.length + '）', () => inspectContent('', true)));
+  root.append(actions);
+  if (doc.status !== 'ready') root.append(el('p', doc.error || '文档尚未解析完成，请查看处理情况或重新解析。', 'overview-warning'));
+}
+function excludedPages() {
+  if (!$('excluded-pages')) return undefined;
+  const text = $('excluded-pages').value.trim(); if (!text) return [];
+  const pages = new Set();
+  for (const part of text.split(/[,，、\s]+/)) {
+    const match = /^(\d+)(?:-(\d+))?$/.exec(part); if (!match) throw new Error('排除页格式应为 12, 15-18。');
+    const start = Number(match[1]), end = Number(match[2] || match[1]);
+    if (start < 1 || end < start || end - start > 10000) throw new Error('排除页码范围无效。');
+    for (let page = start; page <= end; page++) pages.add(page);
+  }
+  return [...pages].sort((a, b) => a-b);
+}
+function lockWorkspace() {
+  const nodes = [...document.querySelectorAll('main button, main input, main select, main textarea, .tabs button')].map(node => [node, node.disabled]);
+  nodes.forEach(([node]) => node.disabled = true);
+  return () => nodes.forEach(([node, disabled]) => node.disabled = disabled);
+}
+async function activate(target, note = '', ruleId) {
+  requireAdmin(); const doc = state.document;
+  if (state.dirty) throw new Error('请先保存修改，再确认保存后的内容。');
+  const pages = target === 'description' ? excludedPages() : undefined;
+  const unlock = lockWorkspace();
+  try {
+    const queued = await api('/admin/documents/' + encodeURIComponent(doc.id) + '/confirm', {method: 'POST', body: {expected_version: doc.edit_version, target, note, ...(ruleId ? {rule_id: ruleId} : {}), ...(pages !== undefined ? {excluded_pages: pages} : {})}});
+    try { await waitTask(queued, '准备索引并入库'); }
+    catch (error) { throw new Error('确认已保存，但入库未完成：' + errorMessage(error) + '。可直接重试入库，无需重复审核。'); }
+    await load(); await openDocument(doc.id); showTab('review');
+    notice(state.document.publication?.entry_count ? '已完成入库，当前发布版本已更新。可在“检索与问答”查看结果；版本已自动保存在历史记录中。' : '确认已保存，当前没有可检索内容。请查看排除页、待核对内容或专业规则；历史记录已自动保存。');
+  } finally {
+    unlock();
+    // On failure also refresh the new edit version, so retry does not repeat approval.
+    if (state.document?.id === doc.id) { state.document = await api('/admin/documents/' + encodeURIComponent(doc.id)); renderReview(); }
+  }
+}
+async function publishOnlyDocument(doc) {
+  const unlock = lockWorkspace();
+  try {
+    await waitTask(await api('/admin/documents/' + encodeURIComponent(doc.id) + '/publish', {method: 'POST', body: {expected_version: doc.edit_version}}), '同步文档使用状态');
+    await load(); notice('文档状态已生效，历史记录已自动保存。');
+  } finally { unlock(); }
+}
 async function saveDocument() {
   const doc = state.document; requireAdmin();
   state.document = await api('/admin/documents/' + encodeURIComponent(doc.id), {method: 'PATCH', body: {expected_version: doc.edit_version, blocks: doc.payload.blocks, rules: doc.payload.rules}});
@@ -157,12 +238,12 @@ async function review(target, decision, note, ruleId) {
   const doc = state.document; requireAdmin();
   if (state.dirty) throw new Error('有尚未保存的编辑，请先“保存修改”，核对保存后的内容，再进行审核。');
   state.document = await api('/admin/documents/' + encodeURIComponent(doc.id) + '/review', {method: 'POST', body: {expected_version: doc.edit_version, target, decision, note: note || '', ...(ruleId ? {rule_id: ruleId} : {})}});
-  renderReview(); notice('已记录审核结果。发布后对外生效。');
+  renderReview(); notice('已记录审核结果。原发布内容保留，修正后可重新确认。');
 }
 function auditActions(container, target, ruleId) {
   const note = area('', 2); const noteField = field('审核意见（选填）', note); noteField.className = 'audit-note'; container.append(noteField);
   const actions = el('div', null, 'audit-actions');
-  actions.append(button('保存修改', saveDocument), button('审核通过', () => review(target, 'approved', note.value, ruleId), 'primary'), button('退回修改', () => review(target, 'rejected', note.value, ruleId), 'danger'));
+  actions.append(button('保存修改', saveDocument), button(target === 'rule' ? '审核通过并生效' : '确认说明并入库', () => activate(target, note.value, ruleId), 'primary'), button('退回修改', () => review(target, 'rejected', note.value, ruleId), 'danger'));
   container.append(actions, el('small', '先保存修改，再审核保存后的内容；未保存的编辑不会随审核提交。'));
 }
 let blockPage = 0;
@@ -170,9 +251,9 @@ const blocksPerPage = 6;
 function visibleBlocks() {
   const term = $('block-search').value.trim().toLowerCase(); const kind = $('block-kind').value;
   const fault = state.document.payload.document_type === 'rules' ? state.document.payload.rules[state.ruleIndex] : null;
-  const blocks = state.document.payload.blocks.filter(block => !block.excluded && (!fault || block.section === fault.name || fault.block_ids?.includes(block.id)) && (!kind || block.kind === kind) && (!term || (block.text + ' ' + block.locator + ' ' + block.id).toLowerCase().includes(term)));
+  const blocks = state.document.payload.blocks.filter(block => !block.excluded && (!fault || block.section === fault.name || fault.block_ids?.includes(block.id)) && (!kind || (kind === 'attention' ? block.kind === 'uncertain' || (typeof block.ocr_confidence === 'number' && block.ocr_confidence < 0.8) : block.kind === kind)) && (!term || (block.text + ' ' + block.locator + ' ' + block.id).toLowerCase().includes(term)));
   const pages = Math.max(1, Math.ceil(blocks.length / blocksPerPage)); blockPage = Math.min(blockPage, pages - 1);
-  $('block-count').textContent = blocks.length + ' 块 · 第 ' + (blockPage + 1) + ' / ' + pages + ' 页';
+  $('block-count').textContent = blocks.length + ' 块 · 第 ' + (blockPage + 1) + ' / ' + pages + ' 组（内容浏览，非逐页审核）';
   $('blocks-prev').disabled = blockPage === 0; $('blocks-next').disabled = blockPage >= pages - 1;
   return blocks.slice(blockPage * blocksPerPage, (blockPage + 1) * blocksPerPage);
 }
@@ -186,7 +267,7 @@ function renderDescription() {
   if (fault) { summary.append(el('h3', fault.name)); for (const [key,label] of [['phenomena','机理现象'],['causes','机理原因'],['actions','解决措施']]) { if (fault[key]?.length) { const detail = el('details', null, 'text-details'); detail.append(el('summary', label), el('p', fault[key].join('\n'), 'preserve-lines')); summary.append(detail); } } }
   root.append(el('p', '核对整篇说明的完整性与来源。规则段、待分类段不会作为说明发布。', 'muted'));
   const warnings = state.document.payload.warnings || [];
-  if (warnings.length) { const box = el('div', null, 'warning-list'); warnings.forEach(text => box.append(el('p', text))); root.append(box); }
+  if (warnings.length) { const box = el('details', null, 'warning-list'); box.append(el('summary', '解析提示（' + warnings.length + '）')); warnings.forEach(text => box.append(el('p', text))); root.append(box); }
   const source = $('source-blocks'); source.replaceChildren();
   const blocks = visibleBlocks();
   if (!blocks.length) { empty(source, '没有匹配的原文块。'); root.append(el('p', '没有匹配的内容。', 'muted')); }
@@ -356,11 +437,11 @@ $('refresh').addEventListener('click', action(load));
 $('kb-select').addEventListener('change', action(async () => { state.kb = $('kb-select').value || null; await loadKb(); }));
 $('create-kb').addEventListener('submit', action(async event => { requireAdmin(); const data = new FormData(event.target); const kb = await api('/admin/knowledge-bases', {method: 'POST', body: {name: data.get('name')}}); state.kb = kb.id; event.target.reset(); $('create-dialog').close(); await load(); notice('知识库已创建，可以上传文档。'); }));
 $('archive-kb').addEventListener('click', action(async () => { requireAdmin(); const kb = state.kbs.find(item => item.id === currentKb()); await api('/admin/knowledge-bases/' + encodeURIComponent(kb.id) + '/archive', {method: 'POST', body: {archived: !kb.archived}}); await load(); notice(kb.archived ? '知识库已恢复。' : '知识库已归档。'); }));
-$('upload-form').addEventListener('submit', action(async event => { requireAdmin(); const body = new FormData(event.target); body.append('kb_id', currentKb()); $('upload-dialog').close(); await waitTask(await api('/admin/documents', {method: 'POST', body}), '解析并提取文档'); event.target.reset(); await loadDocuments(); }));
+$('upload-form').addEventListener('submit', action(async event => { requireAdmin(); const body = new FormData(event.target); body.append('kb_id', currentKb()); $('upload-dialog').close(); const uploaded = await api('/admin/documents', {method: 'POST', body}); await waitTask(uploaded, '解析并提取文档'); event.target.reset(); await loadDocuments(); await openDocument(uploaded.document_id); showTab('review'); }));
 $('review-document').addEventListener('change', action(async () => { if ($('review-document').value) await openDocument($('review-document').value); }));
 $('edit-description').addEventListener('click', () => setEditor('description'));
 $('edit-rules').addEventListener('click', () => setEditor('rules'));
-for (const [id, path, title] of [['publish', 'publish', '发布知识库'], ['reindex', 'reindex', '重建索引并发布']]) $(id).addEventListener('click', action(async () => { requireAdmin(); await waitTask(await api('/admin/' + path, {method: 'POST', body: {kb_id: currentKb()}}), title); await load(); showTab('versions'); }));
+for (const [id, path, title] of [['publish', 'publish', '发布知识库'], ['reindex', 'reindex', '重建索引并发布']]) $(id).addEventListener('click', action(async () => { requireAdmin(); if (path === 'publish' && !confirm('此高级操作会发布本知识库全部已审核草稿，并应用待停用文档。日常使用请在单份文档中确认入库。继续？')) return; await waitTask(await api('/admin/' + path, {method: 'POST', body: {kb_id: currentKb()}}), title); await load(); showTab('versions'); }));
 $('restore').addEventListener('click', action(async () => { requireAdmin(); if (!state.release) return; if (!confirm('恢复会创建新发布版本，并将当前草稿审核状态重置为待审核；草稿内容保留。继续恢复？')) return; await waitTask(await api('/admin/restore', {method: 'POST', body: {kb_id: currentKb(), release_id: state.release.id}}), '恢复为新的发布版本'); await load(); showTab('versions'); }));
 $('search-form').addEventListener('submit', action(() => query('retrieve')));
 $('ask').addEventListener('click', action(() => query('answers')));
@@ -389,6 +470,9 @@ for (const id of ['block-search', 'block-kind']) $(id).addEventListener(id === '
 $('blocks-prev').addEventListener('click', () => { blockPage--; renderDescription(); });
 $('blocks-next').addEventListener('click', () => { blockPage++; renderDescription(); });
 if (!state.token) $('connection-dialog').showModal();
+$('open-history').addEventListener('click', () => showTab('versions'));
+$('back-documents').addEventListener('click', () => showTab('documents'));
+$('history-back').addEventListener('click', () => showTab('documents'));
 
 $('fault-select').addEventListener('change', () => { state.ruleIndex = Number($('fault-select').value); blockPage = 0; renderDescription(); renderRules(); });
 

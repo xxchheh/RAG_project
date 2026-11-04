@@ -234,6 +234,29 @@ class Store:
         with self.connection() as c:
             c.execute("UPDATE documents SET status='failed' WHERE id=?", (document_id,))
 
+    def publication_status(self, document_id):
+        doc = self.document(document_id)
+        with self.connection() as c:
+            kb = self._kb(c, doc['kb_id'])
+        release = self.release(doc['kb_id']) if kb['current_release'] else {'entries': []}
+        entries = [e for e in release['entries'] if e['source']['document_id'] == document_id]
+        pending = doc['status'] != 'ready'
+        if not pending and not kb['archived']:
+            try:
+                _, candidate = self._candidate(doc['kb_id'], document_id)
+            except StoreError:
+                # A staged rule-ID conflict must not prevent opening the editor.
+                pending = True
+            else:
+                proposed = [e for e in candidate if e['source']['document_id'] == document_id]
+                def comparable(values):
+                    return {e['id']: {k:v for k,v in e.items() if k != 'knowledge_revision'} for e in values}
+                pending = comparable(entries) != comparable(proposed)
+        pending = pending or doc['description_status'] != 'approved' or any(rule['review_status'] != 'approved' for rule in doc['payload']['rules'])
+        return {'release_id': kb['current_release'], 'entry_count': len(entries),
+                'current_revision_count': sum(e['source']['document_revision'] == doc['latest_revision'] for e in entries),
+                'pending_changes': pending}
+
     def edit_document(self, document_id, expected_version, blocks=None, rules=None):
         with self.connection() as c:
             c.execute('BEGIN IMMEDIATE')
@@ -288,7 +311,7 @@ class Store:
             c.execute('UPDATE kbs SET state_version=state_version+1 WHERE id=?', (doc['kb_id'],))
         return self.document(document_id)
 
-    def review(self, document_id, expected_version, target, decision, rule_id=None, note=''):
+    def review(self, document_id, expected_version, target, decision, rule_id=None, note='', excluded_pages=None, reuse_approval=False):
         if decision not in ('approved', 'rejected') or target not in ('description', 'rule'):
             raise StoreError('无效审核决定')
         with self.connection() as c:
@@ -298,16 +321,28 @@ class Store:
             if doc['status'] != 'ready' or doc['edit_version'] != expected_version:
                 raise StoreError('审核对象已变化，请刷新', 409)
             payload = doc['payload']
+            previous_pages = payload.get('excluded_pages', [])
+            if excluded_pages is not None:
+                if target != 'description' or payload.get('document_type') != 'reference':
+                    raise StoreError('仅普通参考文档支持按页排除')
+                available = {b.get('page') for b in payload['blocks'] if b.get('page')}
+                if any(type(page) is not int or page not in available for page in excluded_pages):
+                    raise StoreError('排除页须为文档中存在的物理页码或幻灯片编号')
+                payload['excluded_pages'] = sorted(set(excluded_pages))
             if target == 'rule':
                 rule = next((r for r in payload['rules'] if r['id'] == rule_id), None)
                 if rule is None:
                     raise StoreError('规则不存在', 404)
                 if decision == 'approved' and not rule['valid']:
                     raise StoreError('先修正指标、单位、条件及来源错误，再审核通过')
+                if reuse_approval and rule['review_status'] == decision:
+                    return doc
                 rule['review_status'] = decision
                 body = rule
             else:
-                body = payload['blocks']
+                if reuse_approval and doc['description_status'] == decision and previous_pages == payload.get('excluded_pages', []):
+                    return doc
+                body = {'blocks': payload['blocks'], 'excluded_pages': payload.get('excluded_pages', [])}
                 c.execute('UPDATE revisions SET description_status=? WHERE document_id=? AND revision=?', (decision, document_id, doc['latest_revision']))
             c.execute('INSERT INTO audits VALUES (?,?,?,?,?,?,?,?)', (uid('audit'), document_id, doc['latest_revision'], rule_id or target, decision, digest(body), note, now()))
             c.execute('UPDATE revisions SET payload=?,edit_version=edit_version+1 WHERE document_id=? AND revision=?', (encoded(payload), document_id, doc['latest_revision']))
@@ -339,7 +374,7 @@ class Store:
             self._kb(c, kb_id)
             return [{k:v for k,v in json.loads(r['body']).items() if k not in ('index', 'entries')} for r in c.execute('SELECT body FROM releases WHERE kb_id=? ORDER BY number DESC', (kb_id,))]
 
-    def _candidate(self, kb_id):
+    def _candidate(self, kb_id, document_id=None, target=None, rule_id=None, expected_version=None):
         from .embeddings import split_text
         with self.connection() as c:
             c.execute('BEGIN')
@@ -347,8 +382,13 @@ class Store:
             previous = c.execute('SELECT body FROM releases WHERE id=?', (kb['current_release'],)).fetchone()
             entries = {e['id']: e for e in json.loads(previous['body'])['entries']} if previous else {}
             for row in c.execute('SELECT id FROM documents WHERE kb_id=?', (kb_id,)).fetchall():
+                if document_id is not None and row['id'] != document_id:
+                    continue
                 doc = self._doc(c, row['id'])
+                if expected_version is not None and doc['edit_version'] != expected_version:
+                    raise StoreError('文档在确认后已变化，请刷新核对后重试', 409)
                 did = doc['id']
+                published_rules = {k:v for k,v in entries.items() if v['source']['document_id'] == did and v['kind'] == 'rule'}
                 if doc['disabled']:
                     entries = {k:v for k,v in entries.items() if v['source']['document_id'] != did}
                     continue
@@ -357,10 +397,10 @@ class Store:
                 payload = doc['payload']
                 source = {'document_id': did, 'document_revision': doc['latest_revision'], 'title': doc['title'], 'sha256': doc['file_hash']}
                 blocked = {b for r in payload['rules'] if not r.get('retired') for b in r.get('block_ids', [])}
-                unsafe = blocked | {b['id'] for b in payload['blocks'] if b['kind'] != 'description'}
-                if doc['description_status']=='approved' or any(r['review_status']=='approved' for r in payload['rules']):
+                unsafe = blocked | {b['id'] for b in payload['blocks'] if b['kind'] != 'description' or b.get('page') in payload.get('excluded_pages', [])}
+                if target != 'rule' and (doc['description_status']=='approved' or any(r['review_status']=='approved' for r in payload['rules'])):
                     entries = {k:v for k,v in entries.items() if not (v['kind']=='description' and v['source']['document_id']==did and v['source']['document_revision']==doc['latest_revision'] and any(k.startswith(f'{did}-{bid}-') for bid in unsafe))}
-                if doc['description_status'] == 'approved':
+                if doc['description_status'] == 'approved' and target != 'rule':
                     entries = {k:v for k,v in entries.items() if not (v['source']['document_id'] == did and v['kind'] == 'description')}
                     from .knowledge_units import prose_units
                     # For a structured rule document, all section prose is represented
@@ -368,7 +408,7 @@ class Store:
                     prose_blocks = payload['blocks']
                     if payload.get('document_type') == 'rules':
                         from .documents import _context
-                        complete_ids = {b['id'] for r in payload['rules'] if r['review_status'] == 'approved' and not r.get('retired') for b in _context(prose_blocks, r.get('block_ids', []))}
+                        complete_ids = {b['id'] for r in payload['rules'] if r['review_status'] == 'approved' and not r.get('retired') and (target != 'description' or (r['id'] in published_rules and published_rules[r['id']]['source']['document_revision'] == doc['latest_revision'] and published_rules[r['id']]['knowledge_revision'] == r.get('knowledge_revision', 1))) for b in _context(prose_blocks, r.get('block_ids', []))}
                         unsafe |= complete_ids
                     from .documents import _context
                     section_devices = {b['id']: r['device_type'] for r in payload['rules'] for b in _context(prose_blocks, r.get('block_ids', []))}
@@ -381,6 +421,13 @@ class Store:
                             'device_type': section_devices.get(block_id) or next((b.get('device_type') for b in prose_blocks if b['id'] == block_id), None) or (payload['rules'][0].get('device_type') if payload['rules'] and len({r.get('device_type') for r in payload['rules']}) == 1 else None),
                             'knowledge_revision': doc['edit_version'], 'source': {**source, 'locator': locator, 'original_quote': raw}}
                 for rule in payload['rules']:
+                    if target == 'rule' and rule['id'] != rule_id:
+                        continue
+                    # Confirming prose may enrich an already published exact rule,
+                    # but must not publish separately staged or edited rules.
+                    published = published_rules.get(rule['id'])
+                    if target == 'description' and (not published or published['source']['document_revision'] != doc['latest_revision'] or published['knowledge_revision'] != rule.get('knowledge_revision', 1)):
+                        continue
                     if rule['review_status'] != 'approved':
                         continue
                     key = rule['id']
@@ -402,17 +449,20 @@ class Store:
                         context = _context(payload['blocks'], rule.get('block_ids', []))
                         locator = source_location(context)
                         raw = '\n'.join([*(b.get('source_text', b['text']) for b in context if b['kind'] == 'description' and b['id'] not in blocked and not b.get('excluded')), rule['original_text']])
+                    if target == 'rule' and descriptions and payload.get('document_type') == 'rules':
+                        ids = {b['id'] for b in context}
+                        entries = {k:v for k,v in entries.items() if not (v['kind']=='description' and v['source']['document_id']==did and v['source']['document_revision']==doc['latest_revision'] and any(k.startswith(f'{did}-{bid}-') for bid in ids))}
                     entries[key] = {'id': key, 'kind': 'rule', 'text': rule_text(public_rule, descriptions), 'device_type': rule['device_type'], 'rule': public_rule, 'knowledge_revision': rule.get('knowledge_revision', 1), 'source': {**source, 'locator': locator, 'original_quote': raw}}
             return kb, list(entries.values())
 
-    def publish(self, kb_id, embedder, restore_id=None, reindex=False):
+    def publish(self, kb_id, embedder, restore_id=None, reindex=False, document_id=None, target=None, rule_id=None, expected_version=None):
         from .retrieval import build_index
         if restore_id or reindex:
             with self.connection() as c:
                 kb=self._kb(c,kb_id,True)
             entries=[]
         else:
-            kb, entries = self._candidate(kb_id)
+            kb, entries = self._candidate(kb_id, document_id, target, rule_id, expected_version)
         previous = self.release(kb_id) if kb['current_release'] else {'entries': []}
         if restore_id:
             entries = self.release(kb_id, restore_id)['entries']

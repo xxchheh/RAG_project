@@ -16,7 +16,7 @@ from rag_service.retrieval import retrieve, answer_question
 from rag_service.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT/'diagnostic_agent/assets/rules_reference.docx'
+REFERENCE = ROOT/'rag_service/assets/rules_reference.docx'
 
 
 class FixedEmbedding:
@@ -49,7 +49,7 @@ class RuleDocumentTests(unittest.TestCase):
 
     def test_sixteen_complete_units_and_all_forty_eight_questions(self):
         doc = self.approve(self.upload())
-        expected = json.loads((ROOT/'diagnostic_agent/config/rules.json').read_text())['rules']
+        expected = json.loads((ROOT/'rag_service/assets/rules.json').read_text())['rules']
         self.assertEqual(len(doc['payload']['rules']), 16)
         self.assertTrue(all(r['valid'] for r in doc['payload']['rules']))
         release = self.store.publish(self.kb, self.emb)

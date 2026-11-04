@@ -1,9 +1,7 @@
-"""External Agent integration example; HTTP retrieval and caller-side diagnosis."""
+"""External Agent integration example; HTTP retrieval and complete published rule retrieval."""
 import argparse
 import json
 import os
-import sys
-from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -14,7 +12,6 @@ def main():
     p.add_argument('--kb-id',required=True)
     p.add_argument('--device-type',default='motor')
     p.add_argument('--query',default='轴承润滑不足的原因和措施')
-    p.add_argument('--features',help='可选特征JSON；数值判断只在本调用方执行')
     args=p.parse_args()
     token=os.environ.get('RAG_READ_TOKEN','')
     if not token:
@@ -28,13 +25,6 @@ def main():
     hits=request('/retrieve',{'kb_id':args.kb_id,'release_id':release,'query':args.query})
     rules=request('/rules?'+urlencode({'kb_id':args.kb_id,'release_id':release,'device_type':args.device_type}))
     result={'release_id':release,'knowledge':hits['items'],'applicable_rules':rules['rules']}
-    if args.features:
-        # This is the Agent side. The RAG service never imports this evaluator.
-        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-        from diagnostic_agent.rules import analyze
-        features=json.loads(Path(args.features).read_text())
-        snapshot={'version':release,'snapshot_id':release,'rules':rules['rules'],'conventions':['由调用方按已确认规则计算'],'source':{'title':'独立RAG已发布规则'}}
-        result['agent_side_diagnosis']=analyze(features,args.device_type,rule_snapshot=snapshot)
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 

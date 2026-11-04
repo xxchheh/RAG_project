@@ -1,145 +1,74 @@
-# 专业知识 RAG 服务与设备诊断 Agent Demo
+# 专业知识 RAG 服务
 
-`RAG_work` 新增独立 HTTP 服务和中文管理页面：支持 Markdown、Word、PDF（含扫描件OCR）和 PPTX，分级审核、版本发布、中文语义检索和带引用问答，供外部 Agent 读取知识及完整规则。
+独立的文档知识服务，提供中文管理页面和 HTTP 接口。支持 Markdown、Word、PDF（含扫描件）及 PPTX 的解析、来源核对、分级审核、版本发布、混合检索和带引用问答。
 
-```bash
-# 在已安装 requirements.txt 的项目根目录运行
-.venv/bin/python -m rag_service serve
-# 在另一个终端查看本地管理令牌与 Agent 只读令牌
-.venv/bin/python -m rag_service tokens
-```
+本服务向外部 Agent 提供知识和完整的已发布机理规则。设备取数、数值诊断与报告生成由调用方负责。
 
-浏览器打开 **http://127.0.0.1:8000/**，使用管理令牌连接。接口文档在 `/docs`。首次建立索引会下载本地中文模型；对话提取与问答使用已有 `.env`。默认数据独立保存在 `data/rag_work/`。
+## 安装与启动
 
-给 Agent 开发者交付的接口文档见 [Agent 侧接口文档](docs/agent_api.md)。完整说明见 [独立 RAG 使用与对接](docs/rag_work.md)，上传样本在 [examples/rag_documents](examples/rag_documents)，外部调用示例为 [rag_agent_client.py](examples/rag_agent_client.py)。说明按文档审核、规则逐条审核后分别发布，数值诊断由 Agent 侧执行。
-
-后续开发须遵守 [Agent v1 接口兼容约定](docs/api_compatibility.md)；公开输入输出与规则能力由契约测试固定。
-
-以下保留原有终端 Agent 的使用方式；新服务可独立启动。
-
-在终端用中文指定设备、测点和时间，Agent 调用设备查询、模拟数据读取、机理规则分析和 Word 报告工具。可以继续追问判断依据、切换设备、比较前一时间窗口，也可以查询已发布的机理知识。
-
-`RAG` 分支使用本地 SQLite 管理结构化规则及说明，首次初始化导入电机4条、联轴器1条、水泵5条、风机5条、齿轮箱1条，共16条规则。固定模拟设备清单与规则独立；本版没有连接 Java 系统，也没有访问或修改设备网站的功能。
-
-## 启动
-
-需要 Python 3.11 或以上。首次使用先克隆仓库，再安装依赖：
+建议 Python 3.12（项目要求 Python ≥3.11）。克隆并创建独立环境：
 
 ```bash
-git clone --branch RAG_work git@github.com:xxchheh/fault_agent.git
-cd fault_agent
-python3 -m venv .venv
+git clone git@github.com:xxchheh/RAG_project.git
+cd RAG_project
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-# 仅当不存在 .env 时复制；不要覆盖已经配置的密钥。
 test -f .env || cp .env.example .env
 ```
 
-编辑本地 `.env`，填入所用厂商的 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`。密钥只保存在本地，不要提交到 Git。已有环境变量优先于 `.env`。不需要为每家厂商同时配置。
+在 `.env` 配置对话模型的 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`。向量模型配置独立，默认本地 FastEmbed。密钥仅保存在本地，已有环境变量优先于 `.env`。
+
+扫描教材和 PPTX 推荐使用隔离的 Docling 解析环境：
 
 ```bash
-.venv/bin/python -m diagnostic_agent check-config
-.venv/bin/python -m diagnostic_agent knowledge init
-.venv/bin/python -m diagnostic_agent chat
+python3.12 -m venv .venv-docling
+.venv-docling/bin/python -m pip install -r requirements-parser.lock
 ```
 
-完成安装和配置后即可使用上面三条命令。输入 `/reset` 清空当前会话，`/exit` 或 Ctrl-D 退出。程序显示每个工具的执行进度。
-
-## 演示问句
-
-```text
-帮我分析16号机器的行走电机驱动端最近一个月的数据，生成Word报告。
-为什么认为可能是轴承问题？请给出实际值和规则编号。
-和前一个月相比有哪些变化？
-换成pump-25这台水泵，分析最近30天并生成报告。
-分析循环水泵，生成报告。
-电机轴承故障有哪些润滑方面的原因和处理措施？
-```
-
-“分析循环水泵”会查询到两台同名设备，Agent 应先询问车间；设备确定后，如测点仍不明确，应继续询问测点。每次处理一个设备、一个测点。
-
-单次真实模型请求：
+解析依赖锁来自 Mac 实测，Linux CPU 安装及模型版本说明见 [结构化资料解析](docs/structured_reference.md)。首次解析和索引需要下载模型。部署时保留完整源码目录，包含 `scripts/docling_worker.py`。
 
 ```bash
-.venv/bin/python -m diagnostic_agent ask '分析fan-30的驱动端，生成报告'
+.venv/bin/python -m rag_service serve --host 0.0.0.0 --port 8000
+# 另开终端，查看管理令牌与只读令牌
+.venv/bin/python -m rag_service tokens
 ```
 
-查看设备和边界样本：
+浏览器访问 `http://服务器IP:8000/`，用管理令牌连接。交互式接口文档为 `/docs`。默认数据目录为 `data/rag_work/`；原文件、数据库、解析缓存及访问令牌均不提交 Git。
+
+## 使用流程
+
+1. 创建知识库，上传文件，选择“机理规则”或“普通参考文档”。
+2. 普通资料先看整份摘要，可按需抽查原页、查看需关注内容或排除指定页面，不要求逐页审核。
+3. 点击“确认入库”，系统自动准备索引并发布；专业规则仍逐条核对，点击“审核通过并生效”。待核对内容不会自动进入检索。
+4. 在“检索与问答”查询知识，或由外部 Agent 使用只读令牌调用接口。
+5. 更新或重新解析产生新修订版，确认后自动生效；“历史记录”提供版本查看、恢复和高级维护。
+
+规则接口返回全部适用的已审核规则。教材中的公式、例题和经验数值不会自动成为正式诊断规则。复杂公式、模糊数字及上下标仍需人工核对。
+
+## 对接与维护
+
+- [Agent 接口简版](docs/agent_api.md)、[请求响应示例](docs/agent_api_examples.md)
+- [简化确认流程](docs/quick_confirmation.md)
+- [完整使用说明](docs/rag_work.md)
+- [Docling 解析配置、检查点与重新处理](docs/structured_reference.md)
+- [接口兼容约定](docs/api_compatibility.md)、[验证记录](docs/validation.md)
+- [外部 HTTP 调用示例](examples/rag_agent_client.py)、[样本文档](examples/rag_documents)
+
+内置 16 条规则种子及参考 Word 保存在 `rag_service/assets/`，仅用于显式导入和解析验证。导入仍为待审核草稿，不自动发布：
 
 ```bash
-.venv/bin/python -m diagnostic_agent devices
+.venv/bin/python -m rag_service import-legacy --name '设备机理知识库'
+# 也支持 --database /path/to/old/knowledge.db，只读复制旧规则
 ```
 
-默认最近30天以 **2026-10-20（Asia/Shanghai）** 为演示时钟，而非电脑当前日期。样本有90天的每日特征。明确指定的日期不会移动；请求范围与实际覆盖范围分别展示。前一等长窗口比较使用程序计算的均值和样本覆盖情况。
+迁移已有服务时停止写入，备份并复制整个 `data/rag_work/` 及本地配置，保留原访问令牌和历史模型配置。此次代码清理不需要迁移或重建现有业务数据库。
 
-## 模型配置
-
-使用标准库 HTTP 客户端调用 Chat Completions，避免绑定某个 Agent 框架。模型必须支持该协议下的 `tools`。三家厂商的示例见 `.env.example`。
-
-- DeepSeek：示例使用 `deepseek-flash`，关闭思考模式；模型名以账户可用模型为准。
-- Qwen：示例使用 `qwen-plus`，关闭思考模式；服务地址与账户地域必须匹配。
-- OpenAI：仅使用支持 Chat Completions 工具调用的模型；示例 `gpt-5.6-terra` 使用 `reasoning_effort=none`。要求 Responses API 的模型不在首版协议范围内。
-
-模型只看到指标、规则及摘要，原始波形留在本地。真实厂商API会收到模拟设备摘要、检索到的知识及对话；导入 Word 时还会收到提取出的规则原文。导入前请确认文档可以发送给所配置的模型服务。HTTP错误不输出服务返回正文，避免泄露凭据。
-
-协议参考：[OpenAI工具调用](https://developers.openai.com/api/docs/guides/function-calling)、[DeepSeek工具调用](https://api-docs.deepseek.com/guides/tool_calls/)、[Qwen工具调用](https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling)。
-
-## 工具与规则
-
-五个工具：`search_devices(query)`、`get_device_data(device_id, point_id?, start_date?, end_date?, days?)`、`analyze_device(dataset_id)`、`generate_report(analysis_id)`、`search_knowledge(query, device_type?)`。对话工具均不能维护或发布知识；知识维护使用独立终端命令。
-
-数据和分析保存在会话内，以ID引用。日期支持ISO日期及时间（每日粒度，时间转为上海时区所属日期）。默认30天。工具参数按公开schema在本地校验；不存在的ID、无数据窗口和无效单位会明确返回错误。
-
-运行规则保存在 `knowledge/knowledge.db`，包含原文、出处、原因、措施、判断树和历史版本；这个本地目录被 Git 忽略。首次自动或手动初始化时，从 `diagnostic_agent/config/rules.json` 迁移内置16条规则一次，之后不会覆盖已维护的内容。只修改种子 JSON 不会更新已有知识库。
-
-分析时按设备类型读取**全部已发布且启用的规则**，程序逐条计算。每次分析固定一份规则快照，历史扫描和报告复用它，后续发布新规则不会改写旧分析。一般原理问答使用关键词检索相关说明；不使用向量 TopK 选择诊断规则。
-
-新增或修改 Word 可以提取为草稿，核对差异后显式发布；也可导出 JSON 人工编辑。完整命令和备份方式见 [知识库维护说明](docs/knowledge-base.md)。文档内容始终作为业务数据处理，不执行其中的指令。
-
-模拟设备目录独立保存在 `diagnostic_agent/config/devices.json`，增删设备不改变规则及其他设备 ID。可用环境变量 `DIAGNOSTIC_DEVICE_CATALOG` 指定自己的清单，新增同类设备立即可查询。当前仍由场景生成固定模拟数据。
-
-演示口径：
-
-- 电机轴承：峭度条件 **且** 低频冲击条件 **且** 峰值因子条件。
-- 其他轴承：（峭度条件 **或** 低频冲击条件）**且** 峰值因子条件。
-- 能量和暂按 `sqrt(各速度RMS幅值平方和)` 计算，再除以速度有效值，单位统一为mm/s。
-- 峭度为非超额峭度；峰值因子为加速度绝对峰值除以有效值。
-- 低频冲击值原文缺少定义，采用 `demo_index`，只能在演示内比较。
-- “风机汽蚀”保留原文名称，名称及机理待业务复核。
-
-三值逻辑保留缺失信息：有足够条件才能判断命中或未命中，否则为数据不足。`真或未知`可为真，`假且未知`可为假，同时保留数据缺口。未命中不等于正常，多规则命中全部保留。速度超过文档规则上限时不反向推断健康。
-
-特征来自固定模拟上游；波形和频谱是单独、注明日期与单位的模拟图谱，**不作为这些特征的计算来源**。只有所查询窗口包含该图谱日期时才附图。报告不提供健康评分、停机等级或自动执行维护操作。
-
-## 输出
-
-默认输出位于 `outputs/`：
-
-- 每份报告一个独立目录，包含 `report.docx`、`analysis.json`、`report-manifest.json`。
-- 会话目录保存 `conversation.json` 和 `tool-calls.jsonl`。
-- 报告复用用户模板的页面与八节结构，替换示例文字、数字和图片；用Arial Unicode MS改善中文兼容性。
-- 模型选择原文原因和措施的顺序及索引，程序据此组织段落；关键结论、数值、图表、条件表及来源全部由程序填充。模型不能添加新的事实或数值。
-- Word成功返回前校验八节、逐行计算证据、引用、图片数量与模板几何；无成功报告不会返回文件路径。每次生成使用独立目录，防止误用旧文件。
-
-首次生成报告需要可用中文字体。Windows/macOS的Word通常可替换字体；Linux渲染时需安装可用CJK字体。PNG图表标签采用英文，避免图表字体缺失。
-
-## 验证
+## 检查
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
-# 调用真实API，产生费用；全部输入均为模拟数据
-.venv/bin/python -m diagnostic_agent smoke --output outputs/live-check
-# 无密钥也可运行的确定性工具演示，不属于真实Agent验收
-.venv/bin/python -m diagnostic_agent demo --device-id motor-16
+# 使用真实本地向量模型验证内置规则文档（临时知识库）
+.venv/bin/python scripts/validate_rule_manual.py
 ```
 
-测试包含16条规则的正例、阈值边界、单位不符、缺失值、零分母、多规则命中、日期、设备歧义、工具协议、HTTP错误和报告失败。HTTP适配器测试会临时绑定本机回环端口。
-
-真实验收结果记录于对应输出目录的 `live-acceptance.json`，本分支对话复测位于本地 `outputs/rag-chat-final/live-acceptance.json`；规则导入、发布和历史报告的验证记录见 [验证说明](docs/validation.md)。`outputs/` 不提交到仓库；克隆后可通过上述命令生成自己的运行记录，并区分真实API验收与离线测试。其他厂商在配置实际可用密钥后可用同一个smoke命令验证，不宣称已实测所有厂商。
-
-仓库中的 `reporttopeople/` 提供系统介绍和一份固定模拟报告样例，可先查看展示效果；其中的分析JSON和清单便于核对示例依据。
-
-规则明细针对窗口末次样本；同时逐日扫描全窗口，独立记录每条规则的历史命中日期、样本数及首次/末次证据。报告分别列示历史与末次结果，避免当前未命中时遗漏历史命中。
-
-后续接真实系统时替换 `diagnostic_agent/data.py` 的只读适配器，保留工具调用方式。知识库支持固定五类设备和现有指标，新增计算指标仍需补充计算代码。原始机理规则的业务确认和信号算法不在本版模拟验收的结论范围内。
-
-真实扫描教材、公式表格和 PPTX 的 Docling 隔离解析环境、逐页检查点、人工核对及旧文件重新处理见 [结构化参考资料说明](docs/structured_reference.md)。参考资料的公式不会自动生成正式诊断规则；已发现的 OCR/公式错误必须对照原页修正。
+公开 Agent 接口及规则能力由 `tests/test_agent_api_contract.py` 和固定契约基线约束。维护时遵守 `AGENTS.md`，不得用覆盖基线的方式掩盖不兼容变更。

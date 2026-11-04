@@ -1,6 +1,6 @@
 # RAG 服务接口说明（Agent 对接简版）
 
-适用分支：`RAG_work`。接口版本：`/api/v1`。规则格式：`equipment-rules-v1`。
+适用项目：`RAG_project`。接口版本：`/api/v1`。规则格式：`equipment-rules-v1`。
 
 本文是 Agent 侧的 v1 对接约定。内部解析、切分、检索和存储可以调整，以下核心字段和含义保持兼容。
 
