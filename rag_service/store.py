@@ -42,6 +42,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,kb_id TEXT,number INTEGER,created_at TEXT,body TEXT NOT NULL,UNIQUE(kb_id,number));
             CREATE TABLE IF NOT EXISTS audits(id TEXT PRIMARY KEY,document_id TEXT,revision INTEGER,target TEXT,decision TEXT,content_hash TEXT,note TEXT,created_at TEXT);
             CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,status TEXT,stage TEXT,result TEXT,error TEXT,created_at TEXT);
+            CREATE TABLE IF NOT EXISTS task_context(task_id TEXT PRIMARY KEY,document_id TEXT,revision INTEGER,rule_id TEXT,operation TEXT,expected_version INTEGER);
+            CREATE INDEX IF NOT EXISTS task_document ON task_context(document_id,revision);
+            CREATE TABLE IF NOT EXISTS entry_audit_snapshots(audit_id TEXT PRIMARY KEY,body TEXT NOT NULL);
             ''')
             if recover_tasks:
                 c.execute("UPDATE documents SET status='failed' WHERE status IN ('queued','processing')")
@@ -95,11 +98,30 @@ class Store:
             result['result'] = json.loads(result['result']) if result['result'] else None
             return result
 
-    def new_task(self):
+    def new_task(self, document_id=None, revision=None, rule_id=None, operation="", expected_version=None):
         key = uid('task')
         with self.connection() as c:
             c.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?)', (key, 'queued', 'queued', None, None, now()))
+            if document_id:
+                c.execute('INSERT INTO task_context VALUES (?,?,?,?,?,?)', (key, document_id, revision, rule_id, operation, expected_version))
         return key
+
+    def document_tasks(self, document_id, revision):
+        with self.connection() as c:
+            rows = c.execute('SELECT t.id,t.status,t.stage,t.error,t.created_at,x.operation,x.rule_id,x.expected_version FROM tasks t JOIN task_context x ON t.id=x.task_id WHERE x.document_id=? AND x.revision=? ORDER BY t.rowid DESC LIMIT 100', (document_id, revision)).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def entry_body(doc, rule):
+        from .documents import _context
+        context = _context(doc['payload']['blocks'], rule.get('block_ids', []))
+        return {'revision': doc['latest_revision'],
+                'rule': {k:v for k,v in rule.items() if k not in ('review_status', 'valid', 'validation_errors')},
+                'context': context}
+
+    def entry_approved(self, doc, rule):
+        record = doc['payload'].get('entry_reviews', {}).get(rule['id'])
+        return bool(record and rule['review_status'] == 'approved' and record == digest(self.entry_body(doc, rule)))
 
     def set_task(self, key, status, stage, result=None, error=None):
         with self.connection() as c:
@@ -161,7 +183,7 @@ class Store:
     def documents(self, kb_id):
         with self.connection() as c:
             self._kb(c, kb_id)
-            return [{**{k: v for k, v in doc.items() if k != 'payload'}, 'document_type': doc['payload'].get('document_type', 'auto')} for row in c.execute('SELECT id FROM documents WHERE kb_id=? ORDER BY rowid', (kb_id,)).fetchall() for doc in [self._doc(c, row['id'])]]
+            return [{**{k: v for k, v in doc.items() if k != 'payload'}, 'document_type': doc['payload'].get('document_type', 'auto'), 'rule_count': len(doc['payload']['rules'])} for row in c.execute('SELECT id FROM documents WHERE kb_id=? ORDER BY rowid', (kb_id,)).fetchall() for doc in [self._doc(c, row['id'])]]
 
     @staticmethod
     def _rule(rule, blocks):
@@ -205,6 +227,7 @@ class Store:
             if doc['latest_revision'] != revision:
                 raise StoreError('文档修订版已变化', 409)
             payload = copy.deepcopy(payload)
+            payload.pop('entry_reviews', None)
             payload.setdefault('document_type', doc['payload'].get('document_type', 'auto'))
             previous = c.execute('SELECT payload FROM revisions WHERE document_id=? AND revision=?', (document_id, revision-1)).fetchone()
             old_rules = json.loads(previous['payload'])['rules'] if previous else []
@@ -240,24 +263,30 @@ class Store:
             kb = self._kb(c, doc['kb_id'])
         release = self.release(doc['kb_id']) if kb['current_release'] else {'entries': []}
         entries = [e for e in release['entries'] if e['source']['document_id'] == document_id]
-        pending = doc['status'] != 'ready'
+        proposed, pending = entries, doc['status'] != 'ready'
         if not pending and not kb['archived']:
             try:
                 _, candidate = self._candidate(doc['kb_id'], document_id)
             except StoreError:
-                # A staged rule-ID conflict must not prevent opening the editor.
                 pending = True
             else:
                 proposed = [e for e in candidate if e['source']['document_id'] == document_id]
-                def comparable(values):
-                    return {e['id']: {k:v for k,v in e.items() if k != 'knowledge_revision'} for e in values}
-                pending = comparable(entries) != comparable(proposed)
-        pending = pending or doc['description_status'] != 'approved' or any(rule['review_status'] != 'approved' for rule in doc['payload']['rules'])
-        return {'release_id': kb['current_release'], 'entry_count': len(entries),
-                'current_revision_count': sum(e['source']['document_revision'] == doc['latest_revision'] for e in entries),
-                'pending_changes': pending}
+        def comparable(entry):
+            return {k:v for k,v in entry.items() if k != 'knowledge_revision'}
+        actual, desired = {e['id']:e for e in entries}, {e['id']:e for e in proposed}
+        pending = pending or {k:comparable(v) for k,v in actual.items()} != {k:comparable(v) for k,v in desired.items()}
+        rules = {}
+        for rule in doc['payload']['rules']:
+            before, after = actual.get(rule['id']), desired.get(rule['id'])
+            rules[rule['id']] = {'published': bool(before), 'current': bool(before and after and comparable(before) == comparable(after) and before['source']['document_revision'] == doc['latest_revision'] and rule['review_status'] == 'approved'), 'entry_approved': self.entry_approved(doc, rule)}
+        if doc['payload'].get('document_type') == 'rules' and doc['payload']['rules']:
+            pending = pending or any(r['review_status'] != 'approved' or not (doc['description_status'] == 'approved' or self.entry_approved(doc, r)) for r in doc['payload']['rules'])
+        else:
+            pending = pending or doc['description_status'] != 'approved' or any(r['review_status'] != 'approved' for r in doc['payload']['rules'])
+        return {'release_id': kb['current_release'], 'entry_count': len(entries), 'rules': rules,
+                'current_revision_count': sum(e['source']['document_revision'] == doc['latest_revision'] for e in entries), 'pending_changes': pending}
 
-    def edit_document(self, document_id, expected_version, blocks=None, rules=None):
+    def edit_document(self, document_id, expected_version, blocks=None, rules=None, excluded_pages=None):
         with self.connection() as c:
             c.execute('BEGIN IMMEDIATE')
             doc = self._doc(c, document_id)
@@ -266,6 +295,13 @@ class Store:
                 raise StoreError('文档已变化或尚未解析完成，请刷新', 409)
             payload = doc['payload']
             old_blocks = {b['id']: b for b in payload['blocks']}
+            pages_changed = False
+            if excluded_pages is not None:
+                available = {b.get('page') for b in payload['blocks'] if b.get('page')}
+                if payload.get('document_type') != 'reference' or any(type(n) is not int or n not in available for n in excluded_pages):
+                    raise StoreError('排除页必须属于普通参考资料的现有页面')
+                pages_changed = sorted(set(excluded_pages)) != payload.get('excluded_pages', [])
+                payload['excluded_pages'] = sorted(set(excluded_pages))
             if blocks is not None:
                 if not isinstance(blocks, list) or len(blocks) != len(old_blocks) or {b.get('id') for b in blocks} != set(old_blocks):
                     raise StoreError('保留原文块编号，不能增删原文定位')
@@ -306,12 +342,22 @@ class Store:
                     if changed_block_ids & set(r.get('block_ids', [])):
                         r['review_status'] = 'pending'
                         r['knowledge_revision'] = r.get('knowledge_revision', 1)+1
-            description_status = 'pending' if changed_block_ids else doc['description_status']
+            for r in payload['rules']:
+                if r['id'] in payload.get('entry_reviews', {}) and not self.entry_approved(doc, r):
+                    payload['entry_reviews'].pop(r['id'])
+                    if r['review_status'] != 'pending':
+                        r['review_status'] = 'pending'
+                        r['knowledge_revision'] = r.get('knowledge_revision', 1)+1
+                    # Validate against original evidence after source edits as well.
+                    r.update(self._rule(r, payload['blocks']))
+            description_status = 'pending' if changed_block_ids or pages_changed else doc['description_status']
             c.execute('UPDATE revisions SET payload=?,description_status=?,edit_version=edit_version+1 WHERE document_id=? AND revision=?', (encoded(payload), description_status, document_id, doc['latest_revision']))
             c.execute('UPDATE kbs SET state_version=state_version+1 WHERE id=?', (doc['kb_id'],))
         return self.document(document_id)
 
-    def review(self, document_id, expected_version, target, decision, rule_id=None, note='', excluded_pages=None, reuse_approval=False):
+    def review(self, document_id, expected_version, target, decision, rule_id=None, note='', excluded_pages=None, reuse_approval=False, include_context=False):
+        if include_context and target != 'rule':
+            raise StoreError('完整条目审核仅用于专业规则')
         if decision not in ('approved', 'rejected') or target not in ('description', 'rule'):
             raise StoreError('无效审核决定')
         with self.connection() as c:
@@ -335,16 +381,23 @@ class Store:
                     raise StoreError('规则不存在', 404)
                 if decision == 'approved' and not rule['valid']:
                     raise StoreError('先修正指标、单位、条件及来源错误，再审核通过')
-                if reuse_approval and rule['review_status'] == decision:
+                if reuse_approval and rule['review_status'] == decision and (not include_context or self.entry_approved(doc, rule)):
                     return doc
                 rule['review_status'] = decision
-                body = rule
+                body = self.entry_body(doc, rule) if include_context else rule
+                if include_context and decision == 'approved':
+                    payload.setdefault('entry_reviews', {})[rule['id']] = digest(body)
+                elif decision != 'approved':
+                    payload.get('entry_reviews', {}).pop(rule['id'], None)
             else:
                 if reuse_approval and doc['description_status'] == decision and previous_pages == payload.get('excluded_pages', []):
                     return doc
                 body = {'blocks': payload['blocks'], 'excluded_pages': payload.get('excluded_pages', [])}
                 c.execute('UPDATE revisions SET description_status=? WHERE document_id=? AND revision=?', (decision, document_id, doc['latest_revision']))
-            c.execute('INSERT INTO audits VALUES (?,?,?,?,?,?,?,?)', (uid('audit'), document_id, doc['latest_revision'], rule_id or target, decision, digest(body), note, now()))
+            audit_id = uid('audit')
+            c.execute('INSERT INTO audits VALUES (?,?,?,?,?,?,?,?)', (audit_id, document_id, doc['latest_revision'], ('entry:'+rule_id) if include_context else (rule_id or target), decision, digest(body), note, now()))
+            if include_context:
+                c.execute('INSERT INTO entry_audit_snapshots VALUES (?,?)', (audit_id, encoded(body)))
             c.execute('UPDATE revisions SET payload=?,edit_version=edit_version+1 WHERE document_id=? AND revision=?', (encoded(payload), document_id, doc['latest_revision']))
             c.execute('UPDATE kbs SET state_version=state_version+1 WHERE id=?', (doc['kb_id'],))
         return self.document(document_id)
@@ -438,7 +491,7 @@ class Store:
                         continue
                     from .knowledge_units import rule_text, source_location
                     public_rule = copy.deepcopy(rule)
-                    descriptions = doc['description_status'] == 'approved'
+                    descriptions = doc['description_status'] == 'approved' or self.entry_approved(doc, rule)
                     if not descriptions:
                         for field in ('phenomena', 'causes', 'actions', 'notes'):
                             public_rule[field] = []
@@ -448,7 +501,15 @@ class Store:
                         from .documents import _context
                         context = _context(payload['blocks'], rule.get('block_ids', []))
                         locator = source_location(context)
-                        raw = '\n'.join([*(b.get('source_text', b['text']) for b in context if b['kind'] == 'description' and b['id'] not in blocked and not b.get('excluded')), rule['original_text']])
+                        if self.entry_approved(doc, rule) and doc['description_status'] != 'approved':
+                            # Only the fields displayed and approved in this entry are quoted.
+                            raw = '\n'.join([*rule.get('phenomena', []), *rule.get('causes', []), *rule.get('actions', []), *rule.get('notes', []), rule['original_text']])
+                        else:
+                            raw = '\n'.join([*(b.get('source_text', b['text']) for b in context if b['kind'] == 'description' and b['id'] not in blocked and not b.get('excluded')), rule['original_text']])
+                    if self.entry_approved(doc, rule) and payload.get('document_type') != 'rules' and doc['description_status'] != 'approved':
+                        from .documents import _context
+                        locator = source_location(_context(payload['blocks'], rule.get('block_ids', [])))
+                        raw = '\n'.join([*rule.get('phenomena', []), *rule.get('causes', []), *rule.get('actions', []), *rule.get('notes', []), rule['original_text']])
                     if target == 'rule' and descriptions and payload.get('document_type') == 'rules':
                         ids = {b['id'] for b in context}
                         entries = {k:v for k,v in entries.items() if not (v['kind']=='description' and v['source']['document_id']==did and v['source']['document_revision']==doc['latest_revision'] and any(k.startswith(f'{did}-{bid}-') for bid in ids))}
@@ -484,6 +545,7 @@ class Store:
                 restored_docs={e['source']['document_id'] for e in entries}
                 for row in c.execute('SELECT id FROM documents WHERE kb_id=?',(kb_id,)).fetchall():
                     draft=self._doc(c,row['id'])
+                    draft['payload'].pop('entry_reviews', None)
                     for r in draft['payload']['rules']:
                         r['review_status']='pending'
                     c.execute("UPDATE revisions SET description_status='pending',payload=?,edit_version=edit_version+1 WHERE document_id=? AND revision=?",(encoded(draft['payload']),draft['id'],draft['latest_revision']))
@@ -496,4 +558,12 @@ class Store:
     def audits(self, document_id):
         with self.connection() as c:
             self._doc(c, document_id)
-            return [dict(r) for r in c.execute('SELECT * FROM audits WHERE document_id=? ORDER BY rowid', (document_id,))]
+            rows = []
+            for row in c.execute('SELECT a.*,s.body AS entry_snapshot FROM audits a LEFT JOIN entry_audit_snapshots s ON a.id=s.audit_id WHERE a.document_id=? ORDER BY a.rowid', (document_id,)):
+                value = dict(row)
+                if value['entry_snapshot']:
+                    value['entry_snapshot'] = json.loads(value['entry_snapshot'])
+                else:
+                    value.pop('entry_snapshot')
+                rows.append(value)
+            return rows

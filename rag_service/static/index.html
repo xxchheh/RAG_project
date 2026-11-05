@@ -1,54 +1,50 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>专业知识库 · RAG 工作台</title>
-  <link rel="stylesheet" href="/static/styles.css">
-  <script src="/static/app.js" defer></script>
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>专业知识库 · RAG 工作台</title><link rel="stylesheet" href="/static/styles.css"><script src="/static/app.js" defer></script><script src="/static/workspace.js" defer></script></head>
 <body>
-  <aside class="sidebar">
-    <a class="brand" href="/"><span class="brand-mark">K</span><div><strong>专业知识库</strong><span>知识管理工作台</span></div></a>
-    <p class="nav-caption">工作空间</p>
-    <nav class="tabs" aria-label="工作台功能">
-      <button data-tab="documents" class="active" aria-selected="true"><span class="nav-icon" data-icon="file"></span>知识管理</button>
-      <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>知识问答</button>
-      <button data-tab="wiki" aria-selected="false"><span class="nav-icon" data-icon="book"></span>专业规则</button>
-    </nav>
-    <div class="sidebar-bottom"><a href="/docs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="book"></span>接口文档 ↗</a><button id="open-settings" type="button"><span class="nav-icon" data-icon="settings"></span>连接设置<span id="connection-state" class="badge">未连接</span></button></div>
-  </aside>
-  <main>
-    <header class="topbar"><span>工作空间 <span class="breadcrumb-divider">/</span> <strong id="page-name">知识管理</strong></span><span class="muted">专业知识 RAG</span></header>
-    <div class="main-content">
-    <dialog id="connection-dialog"><details class="connection" open><summary>连接设置</summary><p class="muted">输入服务令牌，连接知识库工作空间。</p><form id="connection-form"><label>访问令牌<input id="token" type="password" autocomplete="off" placeholder="输入管理令牌或只读令牌"></label><label>访问方式<select id="access-mode"><option value="admin">管理与审核</option><option value="read">只读查询</option></select></label><small>令牌仅保存在当前浏览器会话中。</small><div class="dialog-actions"><button type="button" data-close="connection-dialog">取消</button><button type="button" id="disconnect" class="quiet">退出连接</button><button type="submit" class="primary">连接</button></div></form></details></dialog>
-    <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
-    <section class="workspace-bar"><label>当前知识库<select id="kb-select"><option value="">请先连接并选择知识库</option></select></label><span id="kb-summary" class="muted"></span><button id="refresh" type="button" class="quiet">刷新</button></section>
-
-      <article id="task-box" class="panel hidden" aria-live="polite"><div class="row"><span class="activity-dot"></span><strong id="task-title">处理中</strong></div><p id="task-detail" class="muted"></p></article>
-
-    <section id="tab-documents" class="tab-panel">
-      <div class="section-heading"><div><h2>知识管理</h2><p>上传资料，确认后自动入库；专业规则按条目审核。</p></div><div class="row"><button id="open-history" type="button" class="quiet admin-action">历史记录</button><button id="new-kb" class="admin-action" type="button">创建知识库</button><button id="upload-open" class="primary admin-action" type="button">上传文档</button></div></div>
-      <dialog id="create-dialog"><div class="dialog-heading"><h3>创建知识库</h3><button type="button" data-close="create-dialog" aria-label="关闭">×</button></div>
-        <article><form id="create-kb" class="admin-form"><label>知识库名称<input name="name" required maxlength="100" placeholder="例如：旋转设备机理知识库"></label><button class="primary" type="submit">创建知识库</button></form></article></dialog><dialog id="upload-dialog"><div class="dialog-heading"><h3>上传文档</h3><button type="button" data-close="upload-dialog" aria-label="关闭">×</button></div>
-        <article><form id="upload-form" class="admin-form"><label>选择文件<input name="file" type="file" accept=".md,.docx,.pdf,.pptx" required></label><label>文档类型<select name="document_type"><option value="auto">自动识别（建议）</option><option value="rules">机理规则文档 · 按故障整理</option><option value="reference">普通参考文档 · 按章节切分</option></select></label><label>外部文档编号（选填）<input name="external_id" placeholder="用于外部系统同步识别同一份文档"></label><button class="primary" type="submit">上传并处理</button></form><small>支持 Markdown、Word、文字型 PDF 和 PPTX；保留 PDF 页码及幻灯片编号。扫描PDF与幻灯片图片自动使用本地中文OCR，识别结果须审核；旧版PPT请另存为PPTX。</small></article></dialog>
-      <article class="panel list-panel"><div class="section-heading compact"><div class="row"><h3>全部文档</h3><span id="document-count" class="muted"></span></div><div class="row"><select id="document-type-filter" aria-label="筛选文档类型"><option value="">全部类型</option><option value="rules">机理规则</option><option value="reference">参考文档</option></select><input id="document-filter" type="search" placeholder="搜索文档名称或编号" aria-label="搜索文档"><button id="archive-kb" type="button" class="quiet admin-action">归档当前知识库</button></div></div><div id="document-list" class="empty">选择知识库后查看文档。</div></article>
-
-    </section>
-
-    <dialog id="reprocess-dialog"><div class="dialog-heading"><h3>重新解析文档</h3><button type="button" data-close="reprocess-dialog" aria-label="关闭">×</button></div><p id="reprocess-title" class="muted"></p><form id="reprocess-form" class="admin-form"><label>文档类型<select id="reprocess-type"><option value="rules">机理规则文档 · 按故障整理</option><option value="reference">普通参考文档 · 按章节切分</option><option value="auto">自动识别</option></select></label><p class="muted">使用归档原文件创建新修订版，需要重新审核和发布。现有发布版保留。</p><div class="dialog-actions"><button type="button" data-close="reprocess-dialog">取消</button><button type="submit" class="primary">创建新修订版</button></div></form></dialog>
-
-    <section id="tab-review" class="tab-panel hidden">
-      <div class="section-heading"><div><h2>内容确认</h2><p>普通资料整份确认、按需抽查；专业规则仍按条目核对。</p><button id="back-documents" type="button">返回文档列表</button></div><label>审核文档<select id="review-document"><option value="">请选择文档</option></select></label></div>
-      <div id="review-empty" class="empty panel">从文档列表选择一份文档开始核对。</div>
-      <div id="review-body" class="hidden"><div id="review-meta" class="review-meta"></div><article id="reference-summary" class="panel"></article><div id="inspection"><div id="fault-navigation" class="fault-navigation hidden"><label>故障条目<select id="fault-select"></select></label><span class="muted">按故障核对说明和判断条件；说明仍按整篇文档审核。</span></div><div id="fault-summary"></div><div class="review-controls"><input id="block-search" type="search" placeholder="搜索原文内容或位置" aria-label="搜索原文块"><select id="block-kind" aria-label="原文块分类"><option value="">全部原文块</option><option value="description">说明内容</option><option value="rule">专业规则段</option><option value="uncertain">待分类</option><option value="attention">需关注内容</option></select><span id="block-count" class="muted"></span><button id="blocks-prev" type="button">上一组</button><button id="blocks-next" type="button">下一组</button></div><div class="review-grid"><article class="panel source-pane"><div class="section-heading compact"><h3>原文与定位</h3><span class="badge">原始解析文本</span></div><div class="row"><input id="preview-page" type="number" min="1" value="1" aria-label="原始PDF页码" style="width:90px"><button id="preview-source" type="button">核对PDF原页</button><button id="processing-detail" type="button">处理及失败页</button></div><pre id="processing-output" class="preserve-lines"></pre><img id="source-preview" class="hidden" alt="原始文档页面或图像区域" style="width:100%;height:auto"><div id="source-blocks"></div></article><article class="panel editor-pane"><div class="subtabs"><button id="edit-description" class="active" type="button">文档说明</button><button id="edit-rules" type="button">专业规则</button></div><div id="description-editor"></div><div id="rules-editor" class="hidden"></div></article></div></div></div>
-    </section>
-
-    <section id="tab-versions" class="tab-panel hidden">
-      <div class="section-heading"><div><h2>历史记录</h2><p>确认入库时自动保存版本，可查看变更或恢复历史内容。</p><button id="history-back" type="button">返回知识管理</button></div><div class="row"><details class="advanced-operations"><summary>高级维护</summary><p class="muted">日常确认会自动生效，无需使用以下操作。</p><button id="reindex" class="admin-action" type="button">重建当前索引</button><button id="publish" class="admin-action" type="button">批量发布已审核草稿</button></details></div></div>
-      <div class="version-layout"><article class="panel"><h3>发布记录</h3><div id="release-list" class="empty">暂无发布记录。</div></article><article class="panel"><div class="section-heading compact"><h3>版本详情</h3><button id="restore" class="admin-action hidden" type="button">将此内容恢复为新版本</button></div><div id="release-detail" class="empty">选择一个发布版本查看内容。</div></article></div>
-    </section>
-
+<aside class="sidebar">
+  <a class="brand" href="/"><span class="brand-mark">K</span><div><strong>专业知识库</strong><span>知识管理工作台</span></div></a>
+  <nav class="tabs" aria-label="工作台功能">
+    <div class="nav-group-title">知识管理</div>
+    <button data-tab="documents" data-category="reference" class="active" aria-selected="true"><span class="nav-icon" data-icon="file"></span>参考资料</button>
+    <button data-tab="documents" data-category="rules" aria-selected="false"><span class="nav-icon" data-icon="check"></span>规则文档</button>
+    <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>知识问答</button>
+    <button data-tab="wiki" aria-selected="false"><span class="nav-icon" data-icon="book"></span>专业规则</button>
+  </nav>
+  <div class="sidebar-bottom"><a href="/docs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="book"></span>接口文档 ↗</a><button id="open-settings" type="button"><span class="nav-icon" data-icon="settings"></span>连接设置<span id="connection-state" class="badge">未连接</span></button></div>
+</aside>
+<main>
+<header class="topbar"><strong id="page-name">知识管理 / 参考资料</strong><span class="muted">专业知识 RAG</span></header>
+<div class="main-content">
+<div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
+<section class="workspace-bar"><label>当前知识库<select id="kb-select"><option value="">请先连接</option></select></label><span id="kb-summary" class="muted"></span><button id="refresh" type="button">刷新</button><details class="menu admin-only"><summary>知识库更多</summary><div class="menu-items"><button id="new-kb" type="button">创建知识库</button><button id="open-history" type="button">历史记录与恢复</button><button id="archive-kb" type="button">归档当前知识库</button></div></details></section>
+<section id="tab-documents" class="tab-panel">
+  <button id="choose-document" type="button" class="mobile-document-picker">选择文档</button>
+  <div class="document-workspace">
+    <aside id="document-browser" class="document-browser" aria-label="文档列表"><div class="browser-heading"><h2 id="category-title">参考资料</h2><button id="close-document-picker" type="button" aria-label="关闭文档列表">×</button></div><button id="upload-open" type="button" class="primary admin-action">上传参考资料</button><input id="document-filter" type="search" placeholder="搜索文档名称" aria-label="搜索文档"><div id="document-count" class="muted"></div><div id="document-list" class="document-links"><div class="empty">选择知识库后查看文档。</div></div></aside>
+    <div id="document-pane" class="document-pane">
+      <div id="document-empty" class="empty">从左侧选择文档，或上传一份资料。</div>
+      <div id="document-body" class="hidden">
+        <header class="document-heading"><div><h2 id="document-title"></h2><div id="document-status" class="row"></div></div><details class="menu"><summary>文档更多</summary><div class="menu-items"><button id="download-original" type="button">下载原件</button><button id="replace-document" type="button">替换文件</button><button id="reprocess-open" type="button">重新解析并调整类型</button><button id="document-audits" type="button">审核记录</button><button id="disable-document" type="button">停用文档</button></div></details><input id="replacement-file" type="file" accept=".md,.docx,.pdf,.pptx" hidden></header>
+        <div id="document-actions" class="document-actions">
+          <div id="rule-selector" class="rule-selector hidden"><button id="previous-rule" type="button" aria-label="上一条规则">上一条</button><label>当前规则<select id="rule-picker"></select></label><button id="next-rule" type="button" aria-label="下一条规则">下一条</button></div>
+          <div id="reference-action-title" class="action-title">整份资料确认</div>
+          <div class="primary-actions"><span id="draft-status" class="muted"></span><button id="save-document" type="button">保存修改</button><button id="confirm-document" type="button" class="primary">确认整份入库</button><button id="open-source" type="button">核对来源</button><details id="rule-more" class="menu hidden"><summary>更多</summary><div class="menu-items"><button id="new-rule" type="button">新增条目</button><button id="reject-rule" type="button">退回当前条目</button><button id="retire-rule" type="button">标记当前条目停用</button></div></details></div>
+        </div>
+        <div id="operation-status" class="operation-status hidden" role="status" aria-live="polite"></div>
+        <div id="rules-workspace" class="hidden"><div id="rules-editor" class="rules-form"></div></div>
+        <div id="reference-workspace" class="hidden">
+          <div id="reference-summary" class="reference-summary"></div>
+          <details id="attention-panel" class="attention-panel"><summary id="attention-title">需关注页面</summary><div id="attention-pages"></div></details>
+          <details class="text-details"><summary>按页排除（选填）</summary><label>PDF物理页码／幻灯片编号，例如 12, 15-18<input id="excluded-pages" placeholder="留空表示不额外排除页面"></label><small>保留原文件与历史版本；公式等待核对内容仍不会自动进入检索。</small></details>
+          <div id="reference-pager" class="reference-pager"><button id="previous-page" type="button">上一页</button><label><span id="page-label">物理页码</span><input id="reference-page" type="number" min="1" value="1" aria-label="原始页码"><select id="reference-section" class="hidden" aria-label="内容章节"></select></label><button id="next-page" type="button">下一页</button><span id="page-caption" class="muted"></span></div>
+          <div id="reference-preview" class="reference-preview"><p id="preview-message" class="muted"></p><img id="reference-image" class="hidden" alt="原始PDF页面"><div id="reference-pictures"></div></div>
+          <details id="recognized-text" class="recognized-text"><summary>对照识别文本</summary><div id="reference-blocks"></div></details>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
     <section id="tab-search" class="tab-panel hidden">
       <div class="section-heading"><div><h2>知识问答</h2><p>围绕已发布知识提问，查看回答依据和原文来源。</p></div><span class="badge">大模型问答</span></div>
       <article class="panel question-panel"><form id="search-form"><label for="query">你的问题</label><textarea id="query" rows="3" maxlength="4000" placeholder="例如：电机轴承润滑不足有哪些原因和处理措施？"></textarea>
@@ -65,8 +61,20 @@
       <div id="wiki-meta" class="result-meta"></div>
       <div class="wiki-layout"><aside class="wiki-directory"><div class="wiki-directory-heading"><h3>故障目录</h3><span id="wiki-count" class="muted">0 条</span></div><div id="wiki-list" class="wiki-list"><div class="empty">选择知识库后浏览规则。</div></div></aside><article id="wiki-detail" class="wiki-detail"><div class="empty">从左侧目录选择一条规则。</div></article></div>
     </section>
-    <footer> <span id="service-model">尚未读取服务配置</span></footer>
-    </div>
-  </main>
-</body>
-</html>
+
+<footer><span id="service-model">尚未读取服务配置</span></footer>
+</div></main>
+<dialog id="connection-dialog"><div class="dialog-heading"><h3>连接设置</h3><button type="button" data-close="connection-dialog" aria-label="关闭">×</button></div><form id="connection-form"><label>访问令牌<input id="token" type="password" autocomplete="off"></label><label>访问方式<select id="access-mode"><option value="admin">管理与审核</option><option value="read">只读查询</option></select></label><p id="connection-error" class="connection-error" role="alert"></p><small>令牌仅保存在当前浏览器会话中。</small><div class="dialog-actions"><button id="disconnect" type="button">退出连接</button><button type="submit" class="primary">连接</button></div></form></dialog>
+<dialog id="upload-dialog"><div class="dialog-heading"><h3 id="upload-title">上传参考资料</h3><button type="button" data-close="upload-dialog" aria-label="关闭">×</button></div><form id="upload-form"><label>选择文件<input name="file" type="file" accept=".md,.docx,.pdf,.pptx" required></label><label>外部文档编号（选填）<input name="external_id"></label><small>按当前栏目类型处理，支持 Markdown、Word、PDF 和 PPTX。</small><div class="dialog-actions"><button type="submit" class="primary">上传并解析</button></div></form></dialog>
+<dialog id="create-dialog"><div class="dialog-heading"><h3>创建知识库</h3><button type="button" data-close="create-dialog" aria-label="关闭">×</button></div><form id="create-kb"><label>名称<input name="name" required maxlength="100"></label><button type="submit" class="primary">创建</button></form></dialog>
+<dialog id="reprocess-dialog"><div class="dialog-heading"><h3>重新解析并调整类型</h3><button type="button" data-close="reprocess-dialog" aria-label="关闭">×</button></div><form id="reprocess-form"><label>处理类型<select id="reprocess-type"><option value="reference">参考资料</option><option value="rules">规则文档</option></select></label><p>创建新草稿，需要重新确认。原发布内容继续可用。</p><button type="submit" class="primary">重新解析</button></form></dialog>
+<dialog id="source-drawer" class="source-drawer"><div class="dialog-heading"><h3>当前条目来源</h3><button type="button" data-close="source-drawer" aria-label="关闭">×</button></div><div id="source-content"></div></dialog>
+<dialog id="history-dialog" class="history-dialog"><div class="dialog-heading"><h3>知识库历史</h3><button type="button" data-close="history-dialog" aria-label="关闭">×</button></div>    <section id="tab-versions">
+      <div class="section-heading"><div><h2>历史记录</h2><p>确认入库时自动保存版本，可查看变更或恢复历史内容。</p></div><div class="row"><details class="advanced-operations"><summary>高级维护</summary><p class="muted">日常确认会自动生效，无需使用以下操作。</p><button id="reindex" class="admin-action" type="button">重建当前索引</button><button id="publish" class="admin-action" type="button">批量发布已审核草稿</button></details></div></div>
+      <div class="version-layout"><article class="panel"><h3>发布记录</h3><div id="release-list" class="empty">暂无发布记录。</div></article><article class="panel"><div class="section-heading compact"><h3>版本详情</h3><button id="restore" class="admin-action hidden" type="button">将此内容恢复为新版本</button></div><div id="release-detail" class="empty">选择一个发布版本查看内容。</div></article></div>
+    </section>
+
+</dialog>
+<dialog id="audit-dialog"><div class="dialog-heading"><h3>审核记录</h3><button type="button" data-close="audit-dialog" aria-label="关闭">×</button></div><div id="audit-content"></div></dialog>
+<dialog id="unsaved-dialog"><h3>有未保存的修改</h3><p>切换前保存当前内容，或放弃本次修改。</p><div class="dialog-actions"><button id="unsaved-cancel" type="button">取消</button><button id="unsaved-discard" type="button">放弃修改</button><button id="unsaved-save" type="button" class="primary">保存并切换</button></div></dialog>
+</body></html>

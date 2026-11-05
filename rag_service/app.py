@@ -40,6 +40,7 @@ class Edit(Input):
     expected_version: int = Field(ge=1)
     blocks: list[dict] | None = None
     rules: list[dict] | None = None
+    excluded_pages: list[int] | None = None
 
 
 class Review(Input):
@@ -51,6 +52,7 @@ class Review(Input):
 
 
 class Confirmation(Input):
+    include_context: bool = False
     expected_version: int = Field(ge=1)
     target: Literal['description', 'rule']
     rule_id: str | None = None
@@ -165,7 +167,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
 
     @app.get(prefix+'/admin/documents', dependencies=admin)
     def documents(kb_id: str):
-        return [{**doc, 'publication': store.publication_status(doc['id'])} for doc in store.documents(kb_id)]
+        return [{**doc, 'publication': store.publication_status(doc['id']), 'tasks': store.document_tasks(doc['id'], doc['latest_revision'])} for doc in store.documents(kb_id)]
 
     def process_file(task_id, document_id, revision, content, filename, document_type="auto"):
         try:
@@ -190,7 +192,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         content = await file.read(100*1024*1024+1)
         name = Path((file.filename or '').replace('\\','/')).name
         result = store.reserve_upload(kb_id, name, content, external_id, document_id, document_type=document_type)
-        task_id = store.new_task()
+        task_id = store.new_task(document_id=result['document_id'], revision=result['revision'], operation='parse')
         if result['unchanged']:
             store.set_task(task_id, 'succeeded', '文件未变化', result)
         else:
@@ -213,14 +215,14 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         content = path.read_bytes()
         result = store.reserve_upload(doc['kb_id'], doc['file_name'], content,
             document_id=document_id, document_type=body.document_type, force=True)
-        task_id = store.new_task()
+        task_id = store.new_task(document_id=result['document_id'], revision=result['revision'], operation='parse')
         background.add_task(process_file, task_id, document_id, result['revision'], content, doc['file_name'], body.document_type)
         return {'task_id': task_id, **result}
 
     @app.get(prefix+'/admin/documents/{document_id}', dependencies=admin)
     def get_document(document_id: str):
         doc = store.document(document_id)
-        return {**doc, 'publication': store.publication_status(document_id)}
+        return {**doc, 'publication': store.publication_status(document_id), 'tasks': store.document_tasks(document_id, doc['latest_revision'])}
 
     @app.get(prefix+'/admin/documents/{document_id}/processing', dependencies=admin)
     def processing_detail(document_id: str):
@@ -274,7 +276,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
 
     @app.patch(prefix+'/admin/documents/{document_id}', dependencies=admin)
     def edit(document_id: str, body: Edit):
-        return store.edit_document(document_id, body.expected_version, body.blocks, body.rules)
+        return store.edit_document(document_id, body.expected_version, body.blocks, body.rules, body.excluded_pages)
 
     @app.post(prefix+'/admin/documents/{document_id}/review', dependencies=admin)
     def review(document_id: str, body: Review):
@@ -298,7 +300,11 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
             store.set_task(task_id, 'failed', '发布失败', error=message)
 
     def enqueue_publish(background, kb_id, restore_id=None, reindex=False, scope=None):
-        task_id=store.new_task()
+        doc = store.document(scope['document_id']) if scope else None
+        task_id=store.new_task(document_id=doc['id'] if doc else None,
+            revision=doc['latest_revision'] if doc else None, rule_id=(scope or {}).get('rule_id'),
+            operation=('entry' if (scope or {}).get('target') == 'rule' else 'description') if (scope or {}).get('target') else 'document',
+            expected_version=(scope or {}).get('expected_version'))
         background.add_task(publish_job, task_id, kb_id, restore_id, reindex, scope)
         return {'task_id':task_id}
 
@@ -308,7 +314,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         if doc['disabled']:
             raise HTTPException(409, '请先恢复使用此文档')
         reviewed = store.review(document_id, body.expected_version, body.target, 'approved',
-            body.rule_id, body.note, body.excluded_pages, reuse_approval=True)
+            body.rule_id, body.note, body.excluded_pages, reuse_approval=True, include_context=body.include_context)
         return {**enqueue_publish(background, reviewed['kb_id'], scope={
             'document_id': document_id, 'target': body.target, 'rule_id': body.rule_id,
             'expected_version': reviewed['edit_version']}), 'edit_version': reviewed['edit_version']}

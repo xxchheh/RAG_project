@@ -145,7 +145,7 @@ class RuleDocumentTests(unittest.TestCase):
         doc = self.upload('# 电机特殊故障\n\n机理规则：温度大于等于70，速度有效值大于等于3。'.encode(), 'unknown.md')
         self.assertFalse(doc['payload']['rules'][0]['valid'])
         self.approve(doc, rules=False)
-        self.assertNotIn('70', json.dumps(self.store.publish(self.kb, self.emb)))
+        self.assertNotIn('70', json.dumps(self.store.publish(self.kb, self.emb)['entries']))
 
     def test_reprocess_creates_revision_and_keeps_release_and_public_contract(self):
         app = create_app(Settings(Path(self.tmp.name)/'http', 'admin-token-123', 'read-token-123'), embedder=self.emb, model_factory=lambda: None)
