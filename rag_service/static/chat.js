@@ -31,7 +31,7 @@ function renderSessions() {
   const root = $('chat-session-list'); root.replaceChildren();
   if (!sessions.length) empty(root, '暂无历史会话');
   for (const item of sessions) {
-    const node = button('', ()=>openSession(item.id), 'session-link' + (item.id === conversation.id ? ' active' : ''));
+    const node = button('', async()=>{await openSession(item.id); showTab('search');}, 'session-link' + (item.id === conversation.id ? ' active' : ''));
     node.append(el('strong', item.title));
     const name = state.kbs.find(k=>k.id === item.kb_id)?.name || '原知识库';
     node.append(el('small', name)); node.title = item.title; root.append(node);

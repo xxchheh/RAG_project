@@ -58,6 +58,7 @@ async function api(path, options = {}) {
 function setAccess() { document.querySelectorAll('.admin-action, .admin-form button, .admin-form input, .admin-form select').forEach(node => { node.disabled = state.access !== 'admin'; }); }
 function showTab(name) {
   state.activeTab = name; sessionStorage.setItem('rag-tab', name);
+  $('sidebar-conversations').classList.toggle('hidden', name !== 'search');
   $('page-name').textContent = name === 'documents' ? (state.category === 'rules' ? '知识管理 / 规则文档' : '知识管理 / 参考资料') : name === 'wiki' ? '专业规则' : '知识问答';
   document.querySelectorAll('[data-tab]').forEach(node => { const active = node.dataset.tab === name && (!node.dataset.category || node.dataset.category === state.category); node.classList.toggle('active', active); node.setAttribute('aria-selected', String(active)); });
   document.querySelectorAll('.tab-panel').forEach(node => node.classList.toggle('hidden', node.id !== 'tab-' + name));

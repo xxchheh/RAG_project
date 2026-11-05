@@ -1,16 +1,19 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>专业知识库 · RAG 工作台</title><link rel="stylesheet" href="/static/styles.css?v=sessions-1"><script src="/static/app.js?v=sessions-1" defer></script><script src="/static/chat.js?v=sessions-1" defer></script><script src="/static/workspace.js?v=sessions-1" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>专业知识库 · RAG 工作台</title><link rel="stylesheet" href="/static/styles.css?v=chat-nav-1"><script src="/static/app.js?v=chat-nav-1" defer></script><script src="/static/chat.js?v=chat-nav-1" defer></script><script src="/static/workspace.js?v=chat-nav-1" defer></script></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/"><span class="brand-mark">K</span><div><strong>专业知识库</strong><span>知识管理工作台</span></div></a>
   <nav class="tabs" aria-label="工作台功能">
-    <div class="nav-group-title">知识管理</div>
+    <div class="nav-group-title">文档处理</div>
     <button data-tab="documents" data-category="reference" class="active" aria-selected="true"><span class="nav-icon" data-icon="file"></span>参考资料</button>
     <button data-tab="documents" data-category="rules" aria-selected="false"><span class="nav-icon" data-icon="check"></span>规则文档</button>
-    <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>知识问答</button>
+    <div class="nav-group-title nav-divider">规则查阅</div>
     <button data-tab="wiki" aria-selected="false"><span class="nav-icon" data-icon="book"></span>专业规则</button>
+    <div class="nav-group-title nav-divider">知识应用</div>
+    <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>知识问答</button>
   </nav>
+  <section id="sidebar-conversations" class="sidebar-conversations hidden" aria-label="历史会话"><h3>历史会话</h3><div id="chat-session-list"></div></section>
   <div class="sidebar-bottom"><a href="/docs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="book"></span>接口文档 ↗</a><button id="open-settings" type="button"><span class="nav-icon" data-icon="settings"></span>连接设置<span id="connection-state" class="badge">未连接</span></button></div>
 </aside>
 <main>
@@ -47,7 +50,7 @@
 </section>
     <section id="tab-search" class="tab-panel hidden">
       <div class="section-heading"><div><h2><span class="inline-icon" data-icon="chat" aria-hidden="true"></span>知识问答</h2><p>围绕已发布知识提问，查看回答依据和原文来源。</p></div><button id="new-chat" type="button">新对话</button></div>
-      <div class="conversation-layout"><aside class="session-browser" aria-label="历史会话"><h3>历史会话</h3><div id="chat-session-list"></div></aside><div class="conversation-main"><div class="conversation-heading"><h3 id="chat-title">新对话</h3><div class="row"><button id="rename-chat" type="button">重命名</button><button id="delete-chat" type="button" class="danger">删除会话</button></div></div><div id="chat-messages" class="chat-messages" role="log" aria-label="对话记录"></div><div id="chat-progress" role="status" class="muted"></div><article class="panel question-panel chat-composer"><form id="search-form"><label for="query">继续提问</label><textarea id="query" rows="2" maxlength="4000" placeholder="例如：电机轴承润滑不足有哪些原因和处理措施？"></textarea>
+      <div class="conversation-layout"><div class="conversation-main"><div class="conversation-heading"><h3 id="chat-title">新对话</h3><div class="row"><button id="rename-chat" type="button">重命名</button><button id="delete-chat" type="button" class="danger">删除会话</button></div></div><div id="chat-messages" class="chat-messages" role="log" aria-label="对话记录"></div><div id="chat-progress" role="status" class="muted"></div><article class="panel question-panel chat-composer"><form id="search-form"><label for="query">继续提问</label><textarea id="query" rows="2" maxlength="4000" placeholder="例如：电机轴承润滑不足有哪些原因和处理措施？"></textarea>
         <p id="chat-version" class="muted"></p><details class="text-details question-options"><summary>查询范围与条数</summary><div class="query-filters"><label>发布版本<select id="query-release"><option value="">当前发布版本</option></select></label><label>设备类型<select id="query-device"><option value="">所有类型</option></select></label><label>检索条数<input id="top-k" type="number" min="1" max="50" value="5"></label></div><label>指定发布版本编号（选填，优先于上方选择）<input id="query-release-id" placeholder="输入已知 release_id，可查询历史版本"></label></details>
         <div class="row"><button id="ask" class="primary" type="submit"><span class="inline-icon" data-icon="chat" aria-hidden="true"></span>发送</button><button id="retrieve-evidence" type="button"><span class="inline-icon" data-icon="search" aria-hidden="true"></span>查看检索依据</button></div>
       </form><details class="text-details model-reservation"><summary>回答模型配置</summary><p class="muted">已预留 DeepSeek、Qwen 服务端配置（ANSWER_LLM_*），密钥不在浏览器填写。大模型根据问题综合检索证据组织回答，并附原文引用。未设置独立配置时沿用 LLM_*。未配置模型时仍可查看检索依据。</p></details></article>
