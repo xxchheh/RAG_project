@@ -1106,3 +1106,37 @@ button:disabled { opacity:.55; cursor:not-allowed; }
 }
 
 .reference-pager input[type=number] { width:100px; }
+
+/* View presentation hierarchy */
+.notice:not(.error) { position:fixed; top:76px; right:24px; z-index:110; max-width:480px; box-shadow:0 2px 8px #1118270a; }
+.view-section { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px; margin:24px 0; }
+.view-section>h3 { background:var(--bg); padding:12px 16px; margin:-24px -24px 24px; border-bottom:1px solid var(--line); font-size:15px; }
+.technical-details { margin:16px 0; color:var(--muted); font-size:12px; }
+.technical-details>summary { cursor:pointer; padding:8px 0; }
+.technical-details label { margin:12px 0; }
+.technical-details input { font-size:12px; }
+.reading-condition-group { border-left:2px solid #c7d2fe; padding:8px 0 8px 16px; margin:8px 0; }
+.reading-condition-group h4 { font-size:13px; color:#374151; padding:8px 0; }
+.wiki-detail { font-size:14px; line-height:1.8; }
+.wiki-condition-table { font-size:13px; table-layout:fixed; }
+.wiki-condition-table td { overflow-wrap:anywhere; }
+.wiki-condition-table th:first-child { width:52%; }
+.wiki-rule-link strong { font-size:13px; }
+.evidence-panel { margin-top:24px; padding:20px; border:1px solid var(--line); border-radius:8px; }
+.evidence-panel>summary { cursor:pointer; font-weight:600; }
+.batch-dialog { width:760px; max-height:85vh; overflow:auto; }
+.batch-row { display:flex; flex-direction:row; align-items:flex-start; gap:12px; padding:16px 0; border-bottom:1px solid var(--line); }
+.batch-row input { margin-top:6px; flex-shrink:0; }
+.batch-row .badge { margin-left:12px; }
+.batch-summary { margin:8px 0 0; font-size:13px; line-height:1.7; }
+.batch-invalid,#batch-error { color:var(--danger); }
+.batch-dialog .dialog-actions { position:sticky; bottom:-24px; padding:16px 0; background:white; }
+@media(max-width:760px) { .view-section { padding:16px; } .view-section>h3 { margin:-16px -16px 16px; } .notice:not(.error) { left:16px;right:16px; max-width:none; } .reading-condition-group { padding-left:8px; } }
+
+.reading-condition-group .wiki-condition-table { min-width:0; }
+
+.batch-dialog[open] { display:flex; flex-direction:column; height:min(85vh,900px); overflow:hidden; }
+.batch-dialog .dialog-heading,.batch-dialog>p,.batch-dialog>label,.batch-dialog .dialog-actions { flex-shrink:0; }
+#batch-rows { flex:1; min-height:0; overflow:auto; }
+.batch-dialog .dialog-actions { position:static; margin-top:8px; padding:12px 0 0; border-top:1px solid var(--line); }
+.batch-dialog textarea { max-height:72px; }

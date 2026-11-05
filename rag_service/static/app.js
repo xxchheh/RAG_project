@@ -6,7 +6,25 @@ const statusNames = {pending: '待审核', approved: '已通过', rejected: '已
 const clone = value => JSON.parse(JSON.stringify(value));
 function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined && text !== null) node.textContent = String(text); if (cls) node.className = cls; return node; }
 function empty(node, text) { node.replaceChildren(el('div', text, 'empty')); }
-function notice(message, error = false) { $('notice').textContent = message; $('notice').className = 'notice' + (error ? ' error' : ''); }
+let noticeTimer;
+function notice(message, error = false) {
+  clearTimeout(noticeTimer);
+  $('notice').textContent = message;
+  $('notice').className = 'notice' + (error ? ' error' : '');
+  if (!error && !/正在|处理中|等待|未保存/.test(message)) noticeTimer = setTimeout(() => $('notice').classList.add('hidden'), 4000);
+}
+function technicalDetails(values) {
+  const details = el('details', null, 'technical-details'); details.append(el('summary', '技术详情'));
+  for (const [label, value] of Object.entries(values)) {
+    const row = el('label', label); const control = input(value ?? ''); control.readOnly = true;
+    control.addEventListener('focus', () => control.select()); row.append(control); details.append(row);
+  }
+  return details;
+}
+function viewSection(title) {
+  const section = el('section', null, 'view-section'); section.append(el('h3', title)); return section;
+}
+
 function errorMessage(error) { return error?.message || String(error); }
 function action(fn) { return async event => { event?.preventDefault(); const node = event?.currentTarget; if (node?.dataset.running) return; if (node) node.dataset.running = 'true'; try { await fn(event); } catch (error) { notice(errorMessage(error), true); } finally { if (node) delete node.dataset.running; } }; }
 function badge(text, type = '') { return el('span', statusNames[text] || text || '待审核', 'badge ' + type); }
@@ -111,7 +129,7 @@ function renderRelease() {
   if (release.profile) root.append(el('p', '索引模型：' + (release.profile.mode || '') + ' · ' + (release.profile.model || ''), 'muted'));
   for (const entry of release.entries || []) { const rule = entry.rule || entry; const row = el('div', null, 'release-entry'); row.append(el('strong', (rule.name || entry.text?.split('\n', 1)[0] || entry.id) + ' · ' + (entry.kind === 'rule' ? '专业规则' : '说明')), textDisclosure(entry.text || entry.original_text || ''));  if (rule.condition) row.append(el('p', expression(rule.condition), 'condition-preview')); row.append(sourceCaption(entry.source)); root.append(row); }
 }
-function sourceCaption(source = {}) { return el('div', [source.title, source.document_id, source.document_revision ? '文档 V' + source.document_revision : '', source.locator].filter(Boolean).join(' · '), 'source-caption'); }
+function sourceCaption(source = {}) { return el('div', [source.title, source.locator].filter(Boolean).join(' · '), 'source-caption'); }
 function showResults(result) {
   const profile = result.profile || result.embedding_profile || {};
   $('search-meta').textContent = '发布版本：' + (result.release_id || '暂无') + (profile.model ? ' · 索引：' + profile.mode + ' / ' + profile.model : '');
@@ -126,7 +144,7 @@ function showResults(result) {
     card.append(el('p', excerpt.slice(0, 180) + (excerpt.length > 180 ? '…' : ''), 'preserve-lines'));
     if (excerpt.length > 180 || selected?.length) card.append(textDisclosure(item.text || item.original_text || excerpt));
     if (rule.condition) card.append(el('div', expression(rule.condition), 'condition-preview'));
-    if (item.score !== undefined) card.append(el('small', '检索排序分值：' + Number(item.score).toFixed(4) + '（不是诊断置信度）'));
+    if (item.score !== undefined) card.append(technicalDetails({'知识编号': item.id, '检索排序分值': Number(item.score).toFixed(4)}));
     card.append(sourceCaption(item.source));
     const details = el('div');
     card.append(button('查看完整知识', async () => { const query = new URLSearchParams({kb_id: result.kb_id}); if (result.release_id) query.set('release_id', result.release_id); const value = await api('/knowledge/' + encodeURIComponent(item.knowledge_id || item.id) + '?' + query); const knowledge = value.item || value.knowledge || value; details.replaceChildren(el('pre', knowledge.text || knowledge.original_text || '', 'preserve-lines')); if (knowledge.rule?.condition || knowledge.condition) details.append(el('p', expression(knowledge.rule?.condition || knowledge.condition), 'condition-preview')); }, 'quiet'), details);
@@ -153,7 +171,7 @@ async function query(mode) {
   try {
     const result = await api('/' + mode, {method: 'POST', body});
     if (request !== state.queryRequest || kb_id !== state.kb) return;
-    showResults(result); if (result.status !== 'insufficient_evidence') notice(mode === 'generated-answers' ? '大模型回答已完成。' : '检索依据已返回。');
+    showResults(result); $('evidence-panel').open = mode === 'retrieve'; if (result.status !== 'insufficient_evidence') notice(mode === 'generated-answers' ? '大模型回答已完成。' : '检索依据已返回。');
   } catch (error) {
     if (request !== state.queryRequest || kb_id !== state.kb) return;
     empty($('search-results'), '本次查询未完成：' + errorMessage(error));
@@ -182,7 +200,7 @@ async function loadWiki() {
     const result = await api('/rules?' + params);
     if (request !== state.wikiRequest || kb_id !== state.kb) return;
     state.wikiRules = result.rules; state.wikiContext = {kb_id, release_id: result.release_id, schema: result.schema_version};
-    $('wiki-meta').textContent = '发布版本：' + result.release_id + ' · 格式：' + result.schema_version + ' · 完整适用规则 ' + result.count + ' 条';
+    $('wiki-meta').textContent = '已发布规则 ' + result.count + ' 条';
     renderWikiDirectory(); notice('已读取 ' + result.count + ' 条已发布规则。');
   } catch (error) {
     if (request !== state.wikiRequest || kb_id !== state.kb) return;
@@ -204,7 +222,7 @@ function renderWikiDirectory() {
     for (const rule of group) {
       const item = button('', () => { state.wikiRuleId = rule.id; renderWikiDirectory(); }, 'wiki-rule-link' + (rule.id === state.wikiRuleId ? ' active' : ''));
       item.setAttribute('aria-pressed', String(rule.id === state.wikiRuleId)); item.dataset.ruleId = rule.id;
-      item.append(el('strong', rule.name), el('small', rule.id)); list.append(item);
+      item.append(el('strong', rule.name)); list.append(item);
     }
   }
   renderWikiDetail(rules.find(rule => rule.id === state.wikiRuleId));
@@ -213,34 +231,50 @@ function renderWikiDetail(rule) {
   const root = $('wiki-detail'); root.replaceChildren(); if (!rule) return;
   const context = {...state.wikiContext};
   const heading = el('div', null, 'section-heading compact'); heading.append(el('h3', rule.name), badge(wikiDeviceName(rule.device_type))); root.append(heading);
-  root.append(el('p', rule.id + ' · 知识修订 ' + rule.knowledge_revision, 'muted'));
-  root.append(el('h4', '判断条件'), el('p', expression(rule.condition), 'condition-preview'));
-  const table = el('table', null, 'wiki-condition-table'); const head = el('thead'); const tr = el('tr'); ['指标', '比较条件', '单位', '所属关系'].forEach(text => tr.append(el('th', text))); head.append(tr); table.append(head); const tbody = el('tbody'); table.append(tbody);
-  const visit = (node, groups = []) => {
-    if (node.all || node.any) { (node.all || node.any).forEach(child => visit(child, [...groups, node.all ? '且：全部满足' : '或：任一满足'])); return; }
-    const row = el('tr'); const metric = state.capabilities.metrics?.[node.metric] || state.capabilities.derived?.[node.metric];
-    const metricCell = el('td'); metricCell.append(el('span', metric?.name || node.metric));
-    if (metric?.numerators?.length && metric.denominator) {
-      const name = id => state.capabilities.metrics?.[id]?.name || id;
-      const numerator = metric.numerators.length === 1 ? name(metric.numerators[0]) : '√(' + metric.numerators.map(id => '(' + name(id) + ')²').join(' + ') + ')';
-      metricCell.append(el('small', '计算方式：' + numerator + ' / ' + name(metric.denominator), 'wiki-formula'));
+  const conditions = viewSection('判断条件');
+  const formulas = new Map();
+  function group(node) {
+    const box = el('div', null, 'reading-condition-group');
+    const children = node.all || node.any;
+    if (children) {
+      box.append(el('h4', node.all ? '以下条件全部满足' : '以下条件任意一项满足'));
+      let table;
+      for (const child of children) {
+        if (child.all || child.any) { table = null; box.append(group(child)); continue; }
+        if (!table) { table = conditionTable(); box.append(table); }
+        appendLeaf(table, child);
+      }
+    } else { const table = conditionTable(); appendLeaf(table, node); box.append(table); }
+    return box;
+  }
+  function conditionTable() {
+    const table = el('table', null, 'wiki-condition-table'); const head = el('thead'); const row = el('tr');
+    ['指标', '比较条件', '单位'].forEach(text => row.append(el('th', text))); head.append(row); table.append(head, el('tbody')); return table;
+  }
+  function appendLeaf(table, node) {
+    const metric = metricRegistry()[node.metric];
+    const row = el('tr'); row.append(el('td', metric?.name || node.metric), el('td', ['ge','gt','le','lt'].filter(op => op in node).map(op => ({ge:'≥',gt:'>',le:'≤',lt:'<'}[op]) + ' ' + node[op]).join(' 且 ')), el('td', rule.units[node.metric] === '1' ? '无量纲' : rule.units[node.metric]));
+    table.querySelector('tbody').append(row);
+    if (metric?.numerators) {
+      const name = id => metricRegistry()[id]?.name || id;
+      formulas.set(node.metric, (metric.numerators.length === 1 ? name(metric.numerators[0]) : '√(' + metric.numerators.map(id => '(' + name(id) + ')²').join(' + ') + ')') + ' / ' + name(metric.denominator));
     }
-    row.append(metricCell, el('td', ['ge','gt','le','lt'].filter(op => op in node).map(op => ({ge:'≥',gt:'>',le:'≤',lt:'<'}[op]) + ' ' + node[op]).join(' 且 ')), el('td', rule.units?.[node.metric] || '未提供'), el('td', groups.join(' / ') || '单一条件'));
-    tbody.append(row);
-  };
-  visit(rule.condition); const scroll = el('div', null, 'table-scroll'); scroll.append(table); root.append(scroll, el('small', 'all 表示全部满足，any 表示至少一项满足。此处展示规则，不执行设备诊断。', 'muted'));
+  }
+  conditions.append(group(rule.condition), textDisclosure(expression(rule.condition), '查看完整表达式'));
+  if (formulas.size) conditions.append(textDisclosure([...formulas.values()].join('\n'), '计算说明'));
+  root.append(conditions);
   for (const [key, label] of [['phenomena','机理现象'],['causes','可能原因'],['actions','处理措施'],['notes','原文说明'],['review_notes','审核说明']]) {
     if (!rule[key]?.length) continue;
-    const section = el('section', null, 'wiki-content-section'); section.append(el('h4', label)); const list = el('ul'); rule[key].forEach(text => list.append(el('li', text))); section.append(list); root.append(section);
+    const section = viewSection(label); const list = el('ul'); rule[key].forEach(text => list.append(el('li', text))); section.append(list); if (['notes','review_notes'].includes(key)) { const extra = el('details', null, 'text-details'); extra.append(el('summary', label), list); root.append(extra); } else root.append(section);
   }
-  const original = el('section', null, 'wiki-content-section'); original.append(el('h4', '规则原文'), el('p', rule.original_text, 'preserve-lines')); root.append(original);
-  const source = el('section', null, 'wiki-content-section'); source.append(el('h4', '来源与版本'), sourceCaption(rule.source), el('small', context.release_id, 'muted'));
+  root.append(textDisclosure(rule.original_text, '原文判据'));
+  const source = el('details', null, 'text-details'); source.append(el('summary', '原文依据'), sourceCaption(rule.source));
   if (rule.source?.original_quote) source.append(textDisclosure(rule.source.original_quote, '查看来源摘录'));
   const full = el('div');
   source.append(button('查看完整知识', async () => {
     const value = await api('/knowledge/' + encodeURIComponent(rule.knowledge_id) + '?' + new URLSearchParams({kb_id: context.kb_id, release_id: context.release_id}));
     full.replaceChildren(el('pre', value.item.text, 'preserve-lines'));
-  }, 'quiet'), full); root.append(source);
+  }, 'quiet'), full); root.append(source, technicalDetails({'规则编号': rule.id, '知识编号': rule.knowledge_id, '发布版本': context.release_id, '规则格式': context.schema, '知识修订': rule.knowledge_revision}));
 }
 const icons = {
   file:'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h6',

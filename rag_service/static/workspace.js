@@ -7,7 +7,13 @@ function hasEdits() { return state.dirty || state.exclusionsDirty; }
 function markDirty() { state.dirty = true; updateControls(); }
 function currentRule() { return state.document?.payload.rules[state.ruleIndex]; }
 function relevantTasks(doc, rule) {
-  const seen = new Set(); return (doc?.tasks || []).filter(task => { const key = task.operation + ':' + (task.rule_id || ''); if (seen.has(key)) return false; seen.add(key); return !rule || !task.rule_id || task.rule_id === rule.id; });
+  const seen = new Set();
+  return (doc?.tasks || []).filter(task => {
+    if (rule && (task.rule_ids?.length ? !task.rule_ids.includes(rule.id) : task.rule_id && task.rule_id !== rule.id)) return false;
+    const key = task.operation + ':' + (task.rule_ids?.length ? [...task.rule_ids].sort().join(',') : task.rule_id || '');
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
 }
 function activeTasks(doc) { return (doc?.tasks || []).filter(t => ['queued','processing'].includes(t.status)); }
 function statusLabel(doc, rule) {
@@ -71,7 +77,7 @@ function renderDocuments() {
   for (const doc of docs) {
     const link = button('', () => openDocument(doc.id), 'document-link' + (doc.id === state.document?.id ? ' active' : ''));
     link.dataset.documentId = doc.id; link.setAttribute('aria-pressed', String(doc.id === state.document?.id));
-    link.append(el('strong', doc.title), el('small', '修订 V' + doc.latest_revision), badge(statusLabel(doc), statusLabel(doc) === '已生效' ? 'ok' : ''));
+    link.append(el('strong', doc.title), badge(statusLabel(doc), statusLabel(doc) === '已生效' ? 'ok' : ''));
     list.append(link);
   }
 }
@@ -94,9 +100,9 @@ async function openDocument(id, guard = true) {
 function renderDocument() {
   const doc = state.document; $('document-empty').classList.toggle('hidden', !!doc); $('document-body').classList.toggle('hidden', !doc); if (!doc) return;
   const rules = documentType(doc) === 'rules'; $('document-title').textContent = doc.title;
-  $('rules-workspace').classList.toggle('hidden', !rules); $('reference-workspace').classList.toggle('hidden', rules); $('rule-selector').classList.toggle('hidden', !rules); $('reference-action-title').classList.toggle('hidden', rules); $('rule-more').classList.toggle('hidden', !rules); $('open-source').classList.toggle('hidden', !rules);
+  $('batch-open').classList.toggle('hidden', !rules); $('rules-workspace').classList.toggle('hidden', !rules); $('reference-workspace').classList.toggle('hidden', rules); $('rule-selector').classList.toggle('hidden', !rules); $('reference-action-title').classList.toggle('hidden', rules); $('rule-more').classList.toggle('hidden', !rules); $('open-source').classList.toggle('hidden', !rules);
   $('disable-document').textContent = doc.disabled ? '恢复文档使用' : '停用文档';
-  if (rules) renderRules(); else renderReference();
+  if (rules) renderRules(); else { renderReference(); $('reference-summary').append(technicalDetails({'文档编号': doc.id, '文档修订': doc.latest_revision, '发布版本': doc.publication?.release_id || ''})); }
   renderOperation(); updateControls();
 }
 function renderRules() {
@@ -106,20 +112,20 @@ function renderRules() {
   $('previous-rule').disabled = state.ruleIndex <= 0; $('next-rule').disabled = state.ruleIndex >= rules.length-1;
   const rule = currentRule(); if (!rule) return empty(root,'未提取到规则。可在“更多”新增条目并关联原文。');
   const fields = el('div',null,'rule-title-grid'), name = input(rule.name), dtype = select(deviceOptions(),rule.device_type);
-  name.addEventListener('input',()=>{rule.name=name.value;markDirty();}); dtype.addEventListener('change',()=>{rule.device_type=dtype.value;markDirty();}); fields.append(field('规则名称',name),field('适用设备',dtype)); root.append(fields);
-  const original = area(rule.original_text,3); original.addEventListener('input',()=>{rule.original_text=original.value;markDirty();}); root.append(field('原文判据',original),el('h3','结构化判断条件'));
+  name.addEventListener('input',()=>{rule.name=name.value;markDirty();}); dtype.addEventListener('change',()=>{rule.device_type=dtype.value;markDirty();}); fields.append(field('规则名称',name),field('适用设备',dtype)); const basic = viewSection('基本信息'); basic.append(fields); root.append(basic);
+  const original = area(rule.original_text,3); original.addEventListener('input',()=>{rule.original_text=original.value;markDirty();}); const originalSection = viewSection('原文判据'); originalSection.append(original); root.append(originalSection);
   const condition=el('div'), preview=el('div',null,'condition-preview');
   const syncUnits=node=>node.metric ? {[node.metric]:metricRegistry()[node.metric]?.unit || '1'} : Object.assign({},...(node.all||node.any||[]).map(syncUnits));
   const changed=()=>{rule.units=syncUnits(rule.condition);markDirty();draw();};
   const draw=()=>{condition.replaceChildren(renderCondition(rule.condition,changed));preview.textContent=expression(rule.condition);};
   if (rule.condition) draw(); else condition.append(button('初始化判断条件',()=>{rule.condition={all:[defaultLeaf()]};changed();}));
-  root.append(condition,preview);
-  const controls=el('div',null,'row');controls.append(button('外加“且”条件组',()=>{rule.condition={all:[rule.condition||defaultLeaf(),defaultLeaf()]};changed();}),button('外加“或”条件组',()=>{rule.condition={any:[rule.condition||defaultLeaf(),defaultLeaf()]};changed();}));root.append(controls);
+  const conditionSection = viewSection('结构化判断条件'); const expressionDetail = el('details', null, 'text-details'); expressionDetail.append(el('summary', '查看完整表达式'), preview); conditionSection.append(condition, expressionDetail); root.append(conditionSection);
+  const controls=el('div',null,'row');controls.append(button('外加“且”条件组',()=>{rule.condition={all:[rule.condition||defaultLeaf(),defaultLeaf()]};changed();}),button('外加“或”条件组',()=>{rule.condition={any:[rule.condition||defaultLeaf(),defaultLeaf()]};changed();}));conditionSection.append(controls);
   const explanations=el('details',null,'entry-explanations'); explanations.append(el('summary','现象、原因、措施与说明'));
   for (const [key,label] of [['phenomena','机理现象'],['causes','可能原因'],['actions','处理措施'],['notes','原文说明'],['review_notes','审核说明／解释口径']]) {
     const control=area((rule[key]||[]).join('\n'),2);control.addEventListener('input',()=>{rule[key]=control.value.split('\n').map(s=>s.trim()).filter(Boolean);markDirty();}); explanations.append(field(label+'（每行一项）',control));
   }
-  root.append(explanations,el('small','本次审核包含当前条目的说明和判断条件，不会通过其他条目。'));
+  root.append(explanations, technicalDetails({'规则编号': rule.id, '文档编号': doc.id, '文档修订': doc.latest_revision}));
   if (rule.validation_errors?.length || rule.valid === false) { const box=el('div',null,'warning-list');box.append(el('strong','需修正后保存，才能审核生效'));for(const error of rule.validation_errors||[])box.append(el('p',typeof error==='string'?error:JSON.stringify(error)));root.prepend(box); }
   if (rule.retired) root.prepend(el('p','本条目标记为停用，审核生效后从当前规则集中移除。','warning-list'));
 }
@@ -162,13 +168,14 @@ async function selectPage(page) { if(!Number.isInteger(page)||page<1||page>refer
 function parseExcludedPages(){const value=$('excluded-pages').value.trim();if(!value)return [];const pages=new Set();for(const part of value.split(/[,，、\s]+/)){const m=/^(\d+)(?:-(\d+))?$/.exec(part);if(!m)throw new Error('排除页应填写 12, 15-18 这样的格式。');const a=Number(m[1]),b=Number(m[2]||m[1]);if(a<1||b<a||b-a>10000)throw new Error('排除页范围无效。');for(let i=a;i<=b;i++)pages.add(i);}return [...pages].sort((a,b)=>a-b);}
 function updateControls(){
   const doc=state.document;if(!doc)return;const rule=documentType(doc)==='rules'?currentRule():null,busy=state.busy||activeTasks(doc).length>0||state.documents.some(d=>activeTasks(d).some(t=>t.operation!=='parse')),readonly=state.access!=='admin';
-  const label=statusLabel(doc,rule);$('document-status').replaceChildren(badge(label,label==='已生效'?'ok':label.includes('失败')?'error':''),el('small','文档修订 V'+doc.latest_revision,'muted'));
+  const label=statusLabel(doc,rule);$('document-status').replaceChildren(badge(label,label==='已生效'?'ok':label.includes('失败')?'error':''));
   $('draft-status').textContent=hasEdits()?'有未保存修改':'';
   $('save-document').disabled=readonly||busy||doc.status!=='ready'||!hasEdits();
   $('confirm-document').textContent=label==='入库失败'?'重试入库':rule?'审核通过并生效':documentType(doc)==='rules'?'审核通过并生效':'确认整份入库';
   $('confirm-document').disabled=readonly||busy||doc.status!=='ready'||!!doc.disabled||(documentType(doc)==='rules'&&(!rule||rule.valid===false))||state.dirty;
   $('confirm-document').title=rule?'仅审核并发布当前条目：'+rule.name:'确认本份资料的可用说明';
   document.querySelectorAll('#rules-editor input,#rules-editor textarea,#rules-editor select,#rules-editor button,#reference-blocks input,#reference-blocks textarea,#reference-blocks select,#excluded-pages,#source-content input').forEach(n=>n.disabled=readonly||busy||doc.status!=='ready'||n.dataset.inactive==='true');
+  $('batch-open').disabled=readonly||busy||doc.status!=='ready'||!!doc.disabled;
   for(const id of ['new-rule','reject-rule','retire-rule','reprocess-open','replace-document','disable-document'])$(id).disabled=readonly||busy;
 }
 function renderOperation(){
@@ -181,6 +188,10 @@ function renderOperation(){
   if(task.status==='failed'){
     if(task.operation==='parse')box.append(button('重新解析',openReprocess));
     else if(task.operation==='document')box.append(button('重试状态同步',async()=>{await api('/admin/documents/'+encodeURIComponent(doc.id)+'/publish',{method:'POST',body:{expected_version:doc.edit_version}});await refreshCurrent(true);schedulePoll();}));
+    else if (task.rule_ids?.length) box.append(button('重试本批 ' + task.rule_ids.length + ' 条', async () => {
+      if (!task.rule_ids.every(id => doc.payload.rules.some(r => r.id === id && r.review_status === 'approved') && doc.payload.entry_reviews?.[id])) throw new Error('条目已修改，请重新打开批量审核核对。');
+      await submitBatch(task.rule_ids);
+    }));
     else box.append(el('small','确认结果已保留，原发布版继续可用。点击上方“重试入库”。'));
   }
 }
@@ -242,3 +253,40 @@ document.querySelectorAll('.menu button').forEach(n=>n.addEventListener('click',
 document.querySelectorAll('[data-close]').forEach(n=>n.addEventListener('click',()=>$(n.dataset.close).close()));
 $('token').value=state.token;$('access-mode').value=state.access;
 showTab(sessionStorage.getItem('rag-tab')||'documents');if(state.token)action(load)();else $('connection-dialog').showModal();
+
+function openBatch() {
+  requireAdmin();
+  if (hasEdits()) throw new Error('请先保存修改，再进行批量审核。');
+  const doc = state.document;
+  const root = $('batch-rows'); root.replaceChildren(); $('batch-all').checked = false; $('batch-note').value = '';
+  for (const rule of doc.payload.rules) {
+    const label = statusLabel(doc, rule);
+    const row = el('label', null, 'batch-row'); const check = input('', 'checkbox'); check.value = rule.id;
+    check.disabled = !!rule.retired || label === '已生效';
+    check.addEventListener('change', updateBatch);
+    const body = el('div'); body.append(el('strong', rule.name), badge(label), el('p', expression(rule.condition), 'batch-summary'));
+    if (!rule.valid) body.append(el('p', (rule.validation_errors || ['校验未通过']).join('、'), 'batch-invalid'));
+    row.append(check, body); root.append(row);
+  }
+  updateBatch(); $('batch-dialog').showModal();
+}
+function updateBatch() {
+  const selected = [...document.querySelectorAll('#batch-rows input:checked')].map(node => node.value);
+  const invalid = state.document.payload.rules.filter(rule => selected.includes(rule.id) && !rule.valid);
+  $('batch-error').textContent = invalid.length ? '请修正或取消勾选这些条目：' + invalid.map(rule => rule.name).join('、') : '';
+  $('batch-confirm').textContent = '审核并生效所选 ' + selected.length + ' 条';
+  $('batch-confirm').disabled = !selected.length || !!invalid.length;
+}
+$('batch-open').addEventListener('click', action(openBatch));
+$('batch-all').addEventListener('change', () => { document.querySelectorAll('#batch-rows input:not(:disabled)').forEach(node => node.checked = $('batch-all').checked); updateBatch(); });
+async function submitBatch(rule_ids, note = '') {
+  requireAdmin(); const doc = state.document;
+  if (hasEdits()) throw new Error('请先保存修改，再审核。');
+  $('batch-confirm').disabled = true; state.busy = true; updateControls();
+  try {
+    await api('/admin/documents/' + encodeURIComponent(doc.id) + '/confirm-batch', {method:'POST', body:{expected_version:doc.edit_version, rule_ids, note}});
+    $('batch-dialog').close(); state.ruleIndex = Math.max(0, doc.payload.rules.findIndex(rule => rule.id === rule_ids[0])); await refreshCurrent(true); notice('批量审核已记录，正在统一准备索引。');
+  } catch (error) { $('batch-error').textContent = errorMessage(error); throw error; }
+  finally { state.busy = false; updateControls(); updateBatch(); schedulePoll(); }
+}
+$('batch-confirm').addEventListener('click', action(() => submitBatch([...document.querySelectorAll('#batch-rows input:checked')].map(node => node.value), $('batch-note').value)));

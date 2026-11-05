@@ -29,17 +29,17 @@
         <div id="document-actions" class="document-actions">
           <div id="rule-selector" class="rule-selector hidden"><button id="previous-rule" type="button" aria-label="上一条规则">上一条</button><label>当前规则<select id="rule-picker"></select></label><button id="next-rule" type="button" aria-label="下一条规则">下一条</button></div>
           <div id="reference-action-title" class="action-title">整份资料确认</div>
-          <div class="primary-actions"><span id="draft-status" class="muted"></span><button id="save-document" type="button">保存修改</button><button id="confirm-document" type="button" class="primary">确认整份入库</button><button id="open-source" type="button">核对来源</button><details id="rule-more" class="menu hidden"><summary>更多</summary><div class="menu-items"><button id="new-rule" type="button">新增条目</button><button id="reject-rule" type="button">退回当前条目</button><button id="retire-rule" type="button">标记当前条目停用</button></div></details></div>
+          <div class="primary-actions"><span id="draft-status" class="muted"></span><button id="save-document" type="button">保存修改</button><button id="confirm-document" type="button" class="primary">确认整份入库</button><button id="batch-open" type="button">批量审核</button><button id="open-source" type="button">核对来源</button><details id="rule-more" class="menu hidden"><summary>更多</summary><div class="menu-items"><button id="new-rule" type="button">新增条目</button><button id="reject-rule" type="button">退回当前条目</button><button id="retire-rule" type="button">标记当前条目停用</button></div></details></div>
         </div>
         <div id="operation-status" class="operation-status hidden" role="status" aria-live="polite"></div>
         <div id="rules-workspace" class="hidden"><div id="rules-editor" class="rules-form"></div></div>
         <div id="reference-workspace" class="hidden">
-          <div id="reference-summary" class="reference-summary"></div>
+          <section class="view-section"><h3>资料概况</h3><div id="reference-summary" class="reference-summary"></div></section>
           <details id="attention-panel" class="attention-panel"><summary id="attention-title">需关注页面</summary><div id="attention-pages"></div></details>
           <details class="text-details"><summary>按页排除（选填）</summary><label>PDF物理页码／幻灯片编号，例如 12, 15-18<input id="excluded-pages" placeholder="留空表示不额外排除页面"></label><small>保留原文件与历史版本；公式等待核对内容仍不会自动进入检索。</small></details>
-          <div id="reference-pager" class="reference-pager"><button id="previous-page" type="button">上一页</button><label><span id="page-label">物理页码</span><input id="reference-page" type="number" min="1" value="1" aria-label="原始页码"><select id="reference-section" class="hidden" aria-label="内容章节"></select></label><button id="next-page" type="button">下一页</button><span id="page-caption" class="muted"></span></div>
+          <section class="view-section"><h3>原页核对</h3><div id="reference-pager" class="reference-pager"><button id="previous-page" type="button">上一页</button><label><span id="page-label">物理页码</span><input id="reference-page" type="number" min="1" value="1" aria-label="原始页码"><select id="reference-section" class="hidden" aria-label="内容章节"></select></label><button id="next-page" type="button">下一页</button><span id="page-caption" class="muted"></span></div>
           <div id="reference-preview" class="reference-preview"><p id="preview-message" class="muted"></p><img id="reference-image" class="hidden" alt="原始PDF页面"><div id="reference-pictures"></div></div>
-          <details id="recognized-text" class="recognized-text"><summary>对照识别文本</summary><div id="reference-blocks"></div></details>
+          <details id="recognized-text" class="recognized-text"><summary>对照识别文本</summary><div id="reference-blocks"></div></details></section>
         </div>
       </div>
     </div>
@@ -51,18 +51,18 @@
         <details class="text-details question-options"><summary>查询范围与条数</summary><div class="query-filters"><label>发布版本<select id="query-release"><option value="">当前发布版本</option></select></label><label>设备类型<select id="query-device"><option value="">所有类型</option></select></label><label>检索条数<input id="top-k" type="number" min="1" max="50" value="5"></label></div><label>指定发布版本编号（选填，优先于上方选择）<input id="query-release-id" placeholder="输入已知 release_id，可查询历史版本"></label></details>
         <div class="row"><button id="ask" class="primary" type="submit">生成回答</button><button id="retrieve-evidence" type="button">查看检索依据</button></div>
       </form><details class="text-details model-reservation"><summary>回答模型配置</summary><p class="muted">已预留 DeepSeek、Qwen 服务端配置（ANSWER_LLM_*），密钥不在浏览器填写。大模型根据问题综合检索证据组织回答，并附原文引用。未设置独立配置时沿用 LLM_*。未配置模型时仍可查看检索依据。</p></details></article>
-      <div id="search-meta" class="result-meta"></div><article id="answer-box" class="panel hidden"><div class="section-heading compact"><h3>回答</h3><span class="badge">附原文引用</span></div><div id="answer-text" class="preserve-lines"></div><details class="text-details" open><summary>引用来源</summary><div id="answer-citations"></div></details></article><div class="evidence-heading"><h3>检索依据</h3><span class="muted">仅展示本次命中内容，检索分数不代表诊断置信度。</span></div><div id="search-results" class="result-list"></div>
+      <details class="technical-details"><summary>模型与版本</summary><div id="search-meta" class="result-meta"></div></details><article id="answer-box" class="panel hidden"><div class="section-heading compact"><h3>回答</h3><span class="badge">附原文引用</span></div><div id="answer-text" class="preserve-lines"></div><details class="text-details"><summary>引用来源</summary><div id="answer-citations"></div></details></article><details id="evidence-panel" class="evidence-panel"><summary>检索依据</summary><div class="evidence-heading"><h3>检索依据</h3><span class="muted">仅展示本次命中内容，检索分数不代表诊断置信度。</span></div><div id="search-results" class="result-list"></div></details>
     </section>
 
     <section id="tab-wiki" class="tab-panel hidden">
       <div class="section-heading"><div><h2>专业规则</h2><p>按设备浏览已审核生效的故障规则，查看完整判据、原因、措施与来源。</p></div><span class="badge">只读规则目录</span></div>
       <div class="wiki-toolbar"><label>设备类型<select id="wiki-device"><option value="">全部设备类型</option></select></label><label class="wiki-search-label">查找故障或关键词<input id="wiki-search" type="search" placeholder="例如：轴承、转子不平衡、润滑" maxlength="200"></label><button id="wiki-refresh" type="button">刷新规则</button></div>
       <details class="text-details wiki-version-options"><summary>历史版本与规则格式</summary><label>发布版本编号（留空使用当前版本）<input id="wiki-release" list="wiki-release-options" placeholder="当前发布版本"><datalist id="wiki-release-options"></datalist></label><p class="muted">同一目录固定使用一个发布版本；历史编号不存在时显示错误，不自动替换成当前版本。规则由 Agent 侧工具执行数值判断。</p></details>
-      <div id="wiki-meta" class="result-meta"></div>
+      <details class="text-details"><summary>规则阅读说明</summary><p>“全部满足”表示且（all），“任意一项满足”表示或（any）。嵌套分组按组内关系判断。专业规则由 Agent 执行。</p></details><div id="wiki-meta" class="result-meta"></div>
       <div class="wiki-layout"><aside class="wiki-directory"><div class="wiki-directory-heading"><h3>故障目录</h3><span id="wiki-count" class="muted">0 条</span></div><div id="wiki-list" class="wiki-list"><div class="empty">选择知识库后浏览规则。</div></div></aside><article id="wiki-detail" class="wiki-detail"><div class="empty">从左侧目录选择一条规则。</div></article></div>
     </section>
 
-<footer><span id="service-model">尚未读取服务配置</span></footer>
+<footer><details><summary>服务信息</summary><span id="service-model">尚未读取服务配置</span></details></footer>
 </div></main>
 <dialog id="connection-dialog"><div class="dialog-heading"><h3>连接设置</h3><button type="button" data-close="connection-dialog" aria-label="关闭">×</button></div><form id="connection-form"><label>访问令牌<input id="token" type="password" autocomplete="off"></label><label>访问方式<select id="access-mode"><option value="admin">管理与审核</option><option value="read">只读查询</option></select></label><p id="connection-error" class="connection-error" role="alert"></p><small>令牌仅保存在当前浏览器会话中。</small><div class="dialog-actions"><button id="disconnect" type="button">退出连接</button><button type="submit" class="primary">连接</button></div></form></dialog>
 <dialog id="upload-dialog"><div class="dialog-heading"><h3 id="upload-title">上传参考资料</h3><button type="button" data-close="upload-dialog" aria-label="关闭">×</button></div><form id="upload-form"><label>选择文件<input name="file" type="file" accept=".md,.docx,.pdf,.pptx" required></label><label>外部文档编号（选填）<input name="external_id"></label><small>按当前栏目类型处理，支持 Markdown、Word、PDF 和 PPTX。</small><div class="dialog-actions"><button type="submit" class="primary">上传并解析</button></div></form></dialog>
@@ -77,4 +77,4 @@
 </dialog>
 <dialog id="audit-dialog"><div class="dialog-heading"><h3>审核记录</h3><button type="button" data-close="audit-dialog" aria-label="关闭">×</button></div><div id="audit-content"></div></dialog>
 <dialog id="unsaved-dialog"><h3>有未保存的修改</h3><p>切换前保存当前内容，或放弃本次修改。</p><div class="dialog-actions"><button id="unsaved-cancel" type="button">取消</button><button id="unsaved-discard" type="button">放弃修改</button><button id="unsaved-save" type="button" class="primary">保存并切换</button></div></dialog>
-</body></html>
+<dialog id="batch-dialog" class="batch-dialog"><div class="dialog-heading"><h3>批量审核</h3><button type="button" data-close="batch-dialog" aria-label="关闭">×</button></div><p>审核所选条目的说明、判据和关联来源，统一入库。</p><label class="check-row"><input id="batch-all" type="checkbox">全选可处理条目</label><div id="batch-rows"></div><label>审核意见（选填）<textarea id="batch-note" maxlength="2000"></textarea></label><p id="batch-error" role="alert"></p><div class="dialog-actions"><button type="button" data-close="batch-dialog">取消</button><button id="batch-confirm" class="primary" type="button" disabled>审核并生效所选 0 条</button></div></dialog></body></html>

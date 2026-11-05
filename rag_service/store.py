@@ -42,6 +42,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,kb_id TEXT,number INTEGER,created_at TEXT,body TEXT NOT NULL,UNIQUE(kb_id,number));
             CREATE TABLE IF NOT EXISTS audits(id TEXT PRIMARY KEY,document_id TEXT,revision INTEGER,target TEXT,decision TEXT,content_hash TEXT,note TEXT,created_at TEXT);
             CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,status TEXT,stage TEXT,result TEXT,error TEXT,created_at TEXT);
+            CREATE TABLE IF NOT EXISTS task_rule_members(task_id TEXT,rule_id TEXT,PRIMARY KEY(task_id,rule_id));
             CREATE TABLE IF NOT EXISTS task_context(task_id TEXT PRIMARY KEY,document_id TEXT,revision INTEGER,rule_id TEXT,operation TEXT,expected_version INTEGER);
             CREATE INDEX IF NOT EXISTS task_document ON task_context(document_id,revision);
             CREATE TABLE IF NOT EXISTS entry_audit_snapshots(audit_id TEXT PRIMARY KEY,body TEXT NOT NULL);
@@ -98,18 +99,20 @@ class Store:
             result['result'] = json.loads(result['result']) if result['result'] else None
             return result
 
-    def new_task(self, document_id=None, revision=None, rule_id=None, operation="", expected_version=None):
+    def new_task(self, document_id=None, revision=None, rule_id=None, operation="", expected_version=None, rule_ids=None):
         key = uid('task')
         with self.connection() as c:
             c.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?)', (key, 'queued', 'queued', None, None, now()))
             if document_id:
                 c.execute('INSERT INTO task_context VALUES (?,?,?,?,?,?)', (key, document_id, revision, rule_id, operation, expected_version))
+            for rule in rule_ids or []:
+                c.execute('INSERT INTO task_rule_members VALUES (?,?)', (key, rule))
         return key
 
     def document_tasks(self, document_id, revision):
         with self.connection() as c:
             rows = c.execute('SELECT t.id,t.status,t.stage,t.error,t.created_at,x.operation,x.rule_id,x.expected_version FROM tasks t JOIN task_context x ON t.id=x.task_id WHERE x.document_id=? AND x.revision=? ORDER BY t.rowid DESC LIMIT 100', (document_id, revision)).fetchall()
-            return [dict(row) for row in rows]
+            return [{**dict(row), 'rule_ids': [item[0] for item in c.execute('SELECT rule_id FROM task_rule_members WHERE task_id=?', (row['id'],))]} for row in rows]
 
     @staticmethod
     def entry_body(doc, rule):
@@ -402,6 +405,44 @@ class Store:
             c.execute('UPDATE kbs SET state_version=state_version+1 WHERE id=?', (doc['kb_id'],))
         return self.document(document_id)
 
+    def review_batch(self, document_id, expected_version, rule_ids, note=''):
+        with self.connection() as c:
+            c.execute('BEGIN IMMEDIATE')
+            doc = self._doc(c, document_id)
+            self._kb(c, doc['kb_id'], True)
+            if doc['edit_version'] != expected_version or doc['status'] != 'ready' or doc['disabled']:
+                raise StoreError('文档已变化或当前不可审核，请刷新', 409)
+            if doc['payload'].get('document_type') != 'rules':
+                raise StoreError('批量审核用于规则文档')
+            if not rule_ids or len(rule_ids) > 100 or len(set(rule_ids)) != len(rule_ids):
+                raise StoreError('请选择1至100条不重复的规则')
+            rules = {rule['id']: rule for rule in doc['payload']['rules']}
+            errors = []
+            for key in rule_ids:
+                rule = rules.get(key)
+                if rule is None:
+                    errors.append(key + ' 不属于当前文档')
+                elif rule.get('retired') or not rule['valid']:
+                    errors.append(rule['name'] + '：' + ('已标记停用' if rule.get('retired') else '、'.join(rule.get('validation_errors', [])) or '校验未通过'))
+            if errors:
+                raise StoreError('所选条目未全部通过校验：' + '；'.join(errors))
+            changed = False
+            for key in rule_ids:
+                rule = rules[key]
+                if self.entry_approved(doc, rule):
+                    continue
+                rule['review_status'] = 'approved'
+                body = self.entry_body(doc, rule)
+                doc['payload'].setdefault('entry_reviews', {})[key] = digest(body)
+                audit_id = uid('audit')
+                c.execute('INSERT INTO audits VALUES (?,?,?,?,?,?,?,?)', (audit_id, document_id, doc['latest_revision'], 'entry:'+key, 'approved', digest(body), note, now()))
+                c.execute('INSERT INTO entry_audit_snapshots VALUES (?,?)', (audit_id, encoded(body)))
+                changed = True
+            if changed:
+                c.execute('UPDATE revisions SET payload=?,edit_version=edit_version+1 WHERE document_id=? AND revision=?', (encoded(doc['payload']), document_id, doc['latest_revision']))
+                c.execute('UPDATE kbs SET state_version=state_version+1 WHERE id=?', (doc['kb_id'],))
+        return self.document(document_id)
+
     def disable_document(self, document_id, disabled):
         with self.connection() as c:
             doc = self._doc(c, document_id)
@@ -474,7 +515,7 @@ class Store:
                             'device_type': section_devices.get(block_id) or next((b.get('device_type') for b in prose_blocks if b['id'] == block_id), None) or (payload['rules'][0].get('device_type') if payload['rules'] and len({r.get('device_type') for r in payload['rules']}) == 1 else None),
                             'knowledge_revision': doc['edit_version'], 'source': {**source, 'locator': locator, 'original_quote': raw}}
                 for rule in payload['rules']:
-                    if target == 'rule' and rule['id'] != rule_id:
+                    if target == 'rule' and rule['id'] not in (rule_id if isinstance(rule_id, list) else [rule_id]):
                         continue
                     # Confirming prose may enrich an already published exact rule,
                     # but must not publish separately staged or edited rules.

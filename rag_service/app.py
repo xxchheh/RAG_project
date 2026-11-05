@@ -60,6 +60,12 @@ class Confirmation(Input):
     excluded_pages: list[int] | None = Field(default=None, max_length=10000)
 
 
+class BatchConfirmation(Input):
+    expected_version: int = Field(ge=1)
+    rule_ids: list[str] = Field(min_length=1, max_length=100)
+    note: str = Field(default='', max_length=2000)
+
+
 class DocumentPublication(Input):
     expected_version: int = Field(ge=1)
 
@@ -302,7 +308,8 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
     def enqueue_publish(background, kb_id, restore_id=None, reindex=False, scope=None):
         doc = store.document(scope['document_id']) if scope else None
         task_id=store.new_task(document_id=doc['id'] if doc else None,
-            revision=doc['latest_revision'] if doc else None, rule_id=(scope or {}).get('rule_id'),
+            revision=doc['latest_revision'] if doc else None, rule_id=None if isinstance((scope or {}).get('rule_id'), list) else (scope or {}).get('rule_id'),
+            rule_ids=(scope or {}).get('rule_id') if isinstance((scope or {}).get('rule_id'), list) else None,
             operation=('entry' if (scope or {}).get('target') == 'rule' else 'description') if (scope or {}).get('target') else 'document',
             expected_version=(scope or {}).get('expected_version'))
         background.add_task(publish_job, task_id, kb_id, restore_id, reindex, scope)
@@ -318,6 +325,14 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         return {**enqueue_publish(background, reviewed['kb_id'], scope={
             'document_id': document_id, 'target': body.target, 'rule_id': body.rule_id,
             'expected_version': reviewed['edit_version']}), 'edit_version': reviewed['edit_version']}
+
+    @app.post(prefix+'/admin/documents/{document_id}/confirm-batch', dependencies=admin, status_code=202)
+    def confirm_batch(document_id: str, body: BatchConfirmation, background: BackgroundTasks):
+        doc = store.review_batch(document_id, body.expected_version, body.rule_ids, body.note)
+        queued = enqueue_publish(background, doc['kb_id'], scope={
+            'document_id': document_id, 'target': 'rule', 'rule_id': body.rule_ids,
+            'expected_version': doc['edit_version']})
+        return {**queued, 'edit_version': doc['edit_version'], 'rule_ids': body.rule_ids}
 
     @app.post(prefix+'/admin/documents/{document_id}/publish', dependencies=admin, status_code=202)
     def publish_document(document_id: str, body: DocumentPublication, background: BackgroundTasks):
