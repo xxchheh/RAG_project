@@ -1195,3 +1195,31 @@ a { color:var(--ink); }
 .inline-icon svg { display:block; width:100%; height:100%; }
 h2>.inline-icon { width:20px; height:20px; }
 .view-section>h3>.inline-icon { color:var(--secondary); }
+
+/* Continuous knowledge conversation. */
+.chat-messages { max-width:980px; }
+.chat-message { padding:20px 24px; margin:16px 0; border-bottom:1px solid var(--line); }
+.chat-user { background:var(--bg); border-radius:8px; border:1px solid var(--line); }
+.chat-message>strong { display:block; font-size:12px; color:var(--secondary); margin-bottom:12px; }
+.chat-message p { margin:8px 0; }
+.chat-answer { font-size:15px; line-height:1.9; }
+.chat-sources { margin-top:16px; font-size:13px; }
+.chat-sources summary { cursor:pointer; color:var(--secondary); }
+.chat-composer { margin-top:24px; }
+.chat-error { border-left:2px solid var(--highlight); padding-left:12px; }
+#chat-version { font-size:12px; }
+@media(max-width:760px) { .chat-message { padding:16px 12px; } .chat-composer { padding:16px; } }
+
+/* Persistent conversations share the quiet document-browser hierarchy. */
+.conversation-layout { display:grid; grid-template-columns:220px minmax(0,1fr); gap:24px; align-items:start; }
+.session-browser { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:16px; position:sticky; top:16px; max-height:75vh; overflow:auto; }
+.session-browser h3 { font-size:13px; margin:0 0 16px; }
+.session-link { width:100%; white-space:normal; text-align:left; background:transparent; border:1px solid transparent; margin-bottom:6px; padding:10px; }
+.session-link strong { display:block; font-size:13px; overflow-wrap:anywhere; font-weight:500; }
+.session-link small { display:block; color:var(--muted); font-size:11px; margin-top:4px; }
+.session-link.active { background:#efeeed; box-shadow:inset 2px 0 0 var(--highlight); }
+.conversation-main { min-width:0; }
+.conversation-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.conversation-heading h3 { font-size:16px; overflow-wrap:anywhere; }
+.conversation-heading button { font-size:12px; }
+@media(max-width:900px) { .conversation-layout { grid-template-columns:1fr; } .session-browser { position:static; max-height:200px; } .conversation-heading { flex-wrap:wrap; gap:8px; } }

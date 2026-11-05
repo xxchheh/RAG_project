@@ -201,3 +201,39 @@ class Error(Output):
 ERROR_CODES = {400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN',
                404: 'NOT_FOUND', 409: 'CONFLICT', 422: 'VALIDATION_ERROR'}
 ERROR_RESPONSES = {status: {'model': Error} for status in (*ERROR_CODES, 500)}
+
+
+class ChatAnswer(Retrieval):
+    status: Literal['answered', 'insufficient_evidence', 'clarification_required']
+    answer: str
+    citations: list[Citation]
+    mode: Literal['grounded_generation']
+    model_info: dict[str, str]
+    retrieval_query: str | None
+
+
+class ConversationSummary(Output):
+    id: str
+    title: str
+    kb_id: str
+    release_id: str
+    device_type: DeviceType | None
+    created_at: str
+    updated_at: str
+
+
+class ConversationTurn(Output):
+    id: str
+    request_id: str
+    query: str
+    status: Literal['pending', 'succeeded', 'failed']
+    result: ChatAnswer | None
+    error: str | None
+
+
+class Conversation(ConversationSummary):
+    turns: list[ConversationTurn]
+
+
+class ConversationDeleted(Output):
+    deleted: bool

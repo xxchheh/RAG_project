@@ -61,10 +61,11 @@ async function loadKb() {
   $('query-release-id').value = ''; $('wiki-release').value = ''; $('wiki-search').value = ''; $('answer-box').classList.add('hidden'); $('search-meta').textContent = ''; $('wiki-meta').textContent = '';
   empty($('search-results'), '输入问题查看已发布知识。'); empty($('wiki-list'), '请选择知识库。'); empty($('wiki-detail'), '从左侧目录选择规则。');
   const kb = state.kbs.find(k=>k.id === state.kb); $('kb-summary').textContent = kb?.current_release ? '已发布知识可供查询' : '尚未发布知识'; $('archive-kb').textContent = kb?.archived ? '恢复当前知识库' : '归档当前知识库';
-  if (!state.kb) { renderDocuments(); renderDocument(); return; }
+  if (!state.kb) { await syncChat(); renderDocuments(); renderDocument(); return; }
   sessionStorage.setItem('rag-kb', state.kb);
-  if (state.access === 'admin') { await Promise.all([loadDocuments(), loadReleases()]); await selectInitialDocument(); }
+  if (state.access === 'admin') { await Promise.all([loadDocuments(), loadReleases()]); if (state.activeTab === 'documents') await selectInitialDocument(); }
   else { if (state.activeTab === 'documents') showTab('search'); renderDocuments(); renderDocument(); }
+  await syncChat();
   if (state.activeTab === 'wiki') await loadWiki();
 }
 async function loadDocuments() { const kb = state.kb; const docs = await api('/admin/documents?kb_id=' + encodeURIComponent(kb)); if (kb !== state.kb) return; state.documents = docs; renderDocuments(); }
@@ -239,12 +240,12 @@ $('upload-open').addEventListener('click',action(()=>{currentKb();$('upload-titl
 $('upload-form').addEventListener('submit',action(async event=>{if(!await allowSwitch())return;const body=new FormData(event.target);body.append('kb_id',currentKb());body.append('document_type',state.category);const result=await api('/admin/documents',{method:'POST',body});$('upload-dialog').close();event.target.reset();await loadDocuments();await openDocument(result.document_id,false);}));
 $('new-kb').addEventListener('click',()=>$('create-dialog').showModal());$('create-kb').addEventListener('submit',action(async event=>{if(!await allowSwitch())return;state.kb=(await api('/admin/knowledge-bases',{method:'POST',body:{name:new FormData(event.target).get('name')}})).id;$('create-dialog').close();await load();}));
 $('archive-kb').addEventListener('click',action(async()=>{if(!await allowSwitch())return;const kb=state.kbs.find(k=>k.id===state.kb);if(!kb)throw new Error('请先选择知识库');if(!confirm(kb.archived?'恢复此知识库？':'归档后此知识库将不可对外查询，继续？'))return;await api('/admin/knowledge-bases/'+encodeURIComponent(kb.id)+'/archive',{method:'POST',body:{archived:!kb.archived}});await load();}));
-$('kb-select').addEventListener('change',action(async()=>{const kb=$('kb-select').value;if(!await allowSwitch()){$('kb-select').value=state.kb;return;}state.kb=kb||null;await loadKb();}));
+$('kb-select').addEventListener('change',action(async()=>{const kb=$('kb-select').value;if(!await allowSwitch()){$('kb-select').value=state.kb;return;}if(!changeChatKnowledgeBase(kb||null)){$('kb-select').value=state.kb||'';return;}state.kb=kb||null;await loadKb();}));
 $('refresh').addEventListener('click',action(async()=>{if(!await allowSwitch())return;await load();}));
 $('open-history').addEventListener('click',action(async()=>{await loadReleases();$('history-dialog').showModal();}));
 for(const [id,path]of [['publish','publish'],['reindex','reindex']])$(id).addEventListener('click',action(async()=>{if(!await allowSwitch())return;if(!confirm(path==='publish'?'高级操作：发布整个知识库已审核草稿及停用状态，继续？':'重建当前发布内容的索引，继续？'))return;await waitTask(await api('/admin/'+path,{method:'POST',body:{kb_id:currentKb()}}),'准备索引');await loadReleases();await refreshCurrent(true);}));
 $('restore').addEventListener('click',action(async()=>{if(!state.release||!await allowSwitch())return;if(!confirm('恢复为新版本，并将现有草稿重置为待审核，继续？'))return;await waitTask(await api('/admin/restore',{method:'POST',body:{kb_id:currentKb(),release_id:state.release.id}}),'恢复历史版本');await loadReleases();await loadDocuments();await refreshCurrent(true);}));
-$('search-form').addEventListener('submit',action(()=>query('generated-answers')));$('retrieve-evidence').addEventListener('click',action(()=>query('retrieve')));
+$('search-form').addEventListener('submit',action(()=>sendChat()));$('retrieve-evidence').addEventListener('click',action(()=>chatEvidence()));
 $('wiki-refresh').addEventListener('click',action(loadWiki));$('wiki-device').addEventListener('change',action(loadWiki));$('wiki-release').addEventListener('change',action(loadWiki));$('wiki-search').addEventListener('input',renderWikiDirectory);
 $('open-settings').addEventListener('click',()=>$('connection-dialog').showModal());
 $('connection-form').addEventListener('submit',async event=>{event.preventDefault();$('connection-error').textContent='';state.token=$('token').value.trim();state.access=$('access-mode').value;try{await load();sessionStorage.setItem('rag-token',state.token);sessionStorage.setItem('rag-access',state.access);$('connection-dialog').close();notice('已连接');}catch(error){$('connection-error').textContent=errorMessage(error);}});

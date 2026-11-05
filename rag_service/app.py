@@ -89,9 +89,37 @@ class Query(Publication):
     top_k: int = Field(default=5, ge=1, le=50)
 
 
+class ChatTurn(Input):
+    query: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=20000)
+
+
+class ChatQuery(Query):
+    history: list[ChatTurn] = Field(default_factory=list, max_length=100)
+
+
+class SessionCreate(Input):
+    kb_id: str
+    release_id: str | None = None
+    device_type: wire.DeviceType | None = None
+
+
+class SessionRename(Input):
+    title: str = Field(min_length=1, max_length=100)
+
+
+class SessionMessage(Input):
+    query: str = Field(min_length=1, max_length=4000)
+    request_id: str = Field(min_length=1, max_length=100)
+    retry_turn_id: str | None = None
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
 def create_app(settings=None, embedder=None, model=None, model_factory=None, answer_model_factory=None):
     settings = settings or Settings.from_env()
     store = Store(settings.data_dir, recover_tasks=True)
+    from .chat_store import ChatStore
+    chats = ChatStore(settings.data_dir)
     embedder = embedder or EmbeddingProvider()
     def get_model():
         return model or (model_factory() if model_factory else ChatModel(ModelConfig.from_env()))
@@ -392,6 +420,65 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         found = retrieve(body)
         result = generate_answer(body.query, found['items'], get_answer_model)
         return {**found, **result}
+
+    @app.post(prefix+'/chat', dependencies=read, response_model=wire.ChatAnswer, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
+    def chat(body: ChatQuery):
+        from .chat import bounded_history, resolve_question
+        from .generated_answers import generate_answer
+        # Resolve the release before invoking a model, including clarification turns.
+        rel = active_release(body.kb_id, body.release_id)
+        history = bounded_history([turn.model_dump() for turn in body.history])
+        question, clarification = resolve_question(body.query, history, get_answer_model)
+        if clarification:
+            return {'kb_id': body.kb_id, 'release_id': rel['id'], 'profile': rel['profile'], 'items': [],
+                    'status': 'clarification_required', 'answer': clarification, 'citations': [],
+                    'mode': 'grounded_generation', 'model_info': {}, 'retrieval_query': None}
+        found = retrieve(Query(kb_id=body.kb_id, release_id=rel['id'], query=question,
+                               device_type=body.device_type, top_k=body.top_k))
+        result = generate_answer(body.query, found['items'], get_answer_model, history, question)
+        return {**found, **result, 'retrieval_query': question}
+
+    @app.get(prefix+'/chat/sessions', response_model=list[wire.ConversationSummary], responses=wire.ERROR_RESPONSES)
+    def list_sessions(token=Depends(read_auth)):
+        return chats.list(chats.owner(token))
+
+    @app.post(prefix+'/chat/sessions', response_model=wire.Conversation, status_code=201, responses=wire.ERROR_RESPONSES)
+    def create_session(body: SessionCreate, token=Depends(read_auth)):
+        rel = active_release(body.kb_id, body.release_id)
+        return chats.create(chats.owner(token), body.kb_id, rel['id'], body.device_type)
+
+    @app.get(prefix+'/chat/sessions/{session_id}', response_model=wire.Conversation, responses=wire.ERROR_RESPONSES)
+    def get_session(session_id: str, token=Depends(read_auth)):
+        return chats.get(chats.owner(token), session_id)
+
+    @app.patch(prefix+'/chat/sessions/{session_id}', response_model=wire.Conversation, responses=wire.ERROR_RESPONSES)
+    def rename_session(session_id: str, body: SessionRename, token=Depends(read_auth)):
+        return chats.rename(chats.owner(token), session_id, body.title)
+
+    @app.delete(prefix+'/chat/sessions/{session_id}', response_model=wire.ConversationDeleted, responses=wire.ERROR_RESPONSES)
+    def delete_session(session_id: str, token=Depends(read_auth)):
+        chats.delete(chats.owner(token), session_id)
+        return {'deleted': True}
+
+    @app.post(prefix+'/chat/sessions/{session_id}/messages', response_model=wire.Conversation, responses=wire.ERROR_RESPONSES)
+    def session_message(session_id: str, body: SessionMessage, token=Depends(read_auth)):
+        owner = chats.owner(token)
+        if not body.query.strip():
+            raise StoreError('请输入问题')
+        session, run = chats.begin(owner, session_id, body.query, body.request_id, body.retry_turn_id)
+        if not run:
+            return session
+        history = [{'query': turn['query'], 'answer': turn['result']['answer']} for turn in session['turns'][:-1]
+                   if turn['result'] and turn['result']['status'] != 'insufficient_evidence']
+        try:
+            result = chat(ChatQuery(kb_id=session['kb_id'], release_id=session['release_id'],
+                                    device_type=session['device_type'], query=body.query,
+                                    history=history[-6:], top_k=body.top_k))
+            result = wire.ChatAnswer.model_validate(result).model_dump()
+        except Exception as error:
+            message = str(error) if isinstance(error, (ValueError, StoreError)) else '本轮生成失败，请重试或检查模型配置。'
+            return chats.finish(owner, session_id, body.request_id, error=message)
+        return chats.finish(owner, session_id, body.request_id, result=result)
 
     @app.get(prefix+'/rules', dependencies=read, response_model=wire.Rules, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def rules(kb_id: str, release_id: str | None = None, device_type: str | None = None):
