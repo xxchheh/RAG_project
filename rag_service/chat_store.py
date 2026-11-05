@@ -8,6 +8,35 @@ from .common import now
 from .store import StoreError
 
 
+def repair_legacy_conditions(session):
+    """Remove only null comparison defaults inserted by the old serializer.
+
+    Published knowledge, real bounds (including zero), labels and AND/OR groups
+    are preserved. Invalid non-null conditions still fail the wire validator.
+    """
+    def visit(node):
+        changed = False
+        if not isinstance(node, dict):
+            return changed
+        if 'metric' in node and all(key in node for key in ('ge', 'gt', 'le', 'lt')):
+            for key in ('ge', 'gt', 'le', 'lt'):
+                if node[key] is None:
+                    del node[key]
+                    changed = True
+        for operator in ('all', 'any'):
+            for child in node.get(operator, []):
+                changed = visit(child) or changed
+        return changed
+
+    changed = False
+    for turn in session['turns']:
+        for item in (turn.get('result') or {}).get('items', []):
+            rule = item.get('rule')
+            if rule:
+                changed = visit(rule.get('condition')) or changed
+    return changed
+
+
 class ChatStore:
     def __init__(self, root):
         self.path = root / 'conversations.db'
@@ -16,13 +45,18 @@ class ChatStore:
             c.execute('CREATE INDEX IF NOT EXISTS conversation_owner ON conversations(owner, updated)')
             for row in c.execute('SELECT * FROM conversations').fetchall():
                 session = json.loads(row['body'])
-                changed = False
+                changed = repair_legacy_conditions(session)
+                recovered = False
                 for turn in session['turns']:
                     if turn['status'] == 'pending':
                         turn.update(status='failed', error='服务重启中断了本轮请求，请重试。')
-                        changed = True
-                if changed:
+                        recovered = True
+                if recovered:
                     self.write(c, row['owner'], session)
+                elif changed:
+                    # A format repair must not reorder historical conversations.
+                    c.execute('UPDATE conversations SET body=? WHERE id=?',
+                              (json.dumps(session, ensure_ascii=False), session['id']))
 
     @contextmanager
     def connection(self):
@@ -39,7 +73,9 @@ class ChatStore:
         row = c.execute('SELECT body FROM conversations WHERE id=? AND owner=?', (identifier, owner)).fetchone()
         if row is None:
             raise StoreError('会话不存在', 404)
-        return json.loads(row['body'])
+        session = json.loads(row['body'])
+        repair_legacy_conditions(session)
+        return session
 
     def write(self, c, owner, session):
         session['updated_at'] = now()

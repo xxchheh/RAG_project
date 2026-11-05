@@ -442,16 +442,16 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
     def list_sessions(token=Depends(read_auth)):
         return chats.list(chats.owner(token))
 
-    @app.post(prefix+'/chat/sessions', response_model=wire.Conversation, status_code=201, responses=wire.ERROR_RESPONSES)
+    @app.post(prefix+'/chat/sessions', response_model=wire.Conversation, response_model_exclude_unset=True, status_code=201, responses=wire.ERROR_RESPONSES)
     def create_session(body: SessionCreate, token=Depends(read_auth)):
         rel = active_release(body.kb_id, body.release_id)
         return chats.create(chats.owner(token), body.kb_id, rel['id'], body.device_type)
 
-    @app.get(prefix+'/chat/sessions/{session_id}', response_model=wire.Conversation, responses=wire.ERROR_RESPONSES)
+    @app.get(prefix+'/chat/sessions/{session_id}', response_model=wire.Conversation, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def get_session(session_id: str, token=Depends(read_auth)):
         return chats.get(chats.owner(token), session_id)
 
-    @app.patch(prefix+'/chat/sessions/{session_id}', response_model=wire.Conversation, responses=wire.ERROR_RESPONSES)
+    @app.patch(prefix+'/chat/sessions/{session_id}', response_model=wire.Conversation, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def rename_session(session_id: str, body: SessionRename, token=Depends(read_auth)):
         return chats.rename(chats.owner(token), session_id, body.title)
 
@@ -460,7 +460,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         chats.delete(chats.owner(token), session_id)
         return {'deleted': True}
 
-    @app.post(prefix+'/chat/sessions/{session_id}/messages', response_model=wire.Conversation, responses=wire.ERROR_RESPONSES)
+    @app.post(prefix+'/chat/sessions/{session_id}/messages', response_model=wire.Conversation, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
     def session_message(session_id: str, body: SessionMessage, token=Depends(read_auth)):
         owner = chats.owner(token)
         if not body.query.strip():
@@ -474,7 +474,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
             result = chat(ChatQuery(kb_id=session['kb_id'], release_id=session['release_id'],
                                     device_type=session['device_type'], query=body.query,
                                     history=history[-6:], top_k=body.top_k))
-            result = wire.ChatAnswer.model_validate(result).model_dump()
+            result = wire.ChatAnswer.model_validate(result).model_dump(exclude_unset=True)
         except Exception as error:
             message = str(error) if isinstance(error, (ValueError, StoreError)) else '本轮生成失败，请重试或检查模型配置。'
             return chats.finish(owner, session_id, body.request_id, error=message)
