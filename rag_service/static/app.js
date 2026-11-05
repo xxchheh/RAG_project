@@ -22,7 +22,10 @@ function technicalDetails(values) {
   return details;
 }
 function viewSection(title) {
-  const section = el('section', null, 'view-section'); section.append(el('h3', title)); return section;
+  const section = el('section', null, 'view-section'); const heading = el('h3', title);
+  const symbol = {'基本信息':'file', '判断条件':'check', '结构化判断条件':'check', '处理措施':'tool'}[title];
+  if (symbol) heading.prepend(inlineIcon(symbol));
+  section.append(heading); return section;
 }
 
 function errorMessage(error) { return error?.message || String(error); }
@@ -282,9 +285,21 @@ const icons = {
   layers:'m12 3 10 5-10 5L2 8z M2 12l10 5 10-5 M2 16l10 5 10-5',
   search:'M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   book:'M12 5v16 M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1 3-2 6-3 10-1V4c-2-1-6-2-10 1',
+  upload:'M12 16V3 m-5 5 5-5 5 5 M4 16v5h16v-5',
+  save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2 M7 3v6h10V3 M7 21v-8h10v8',
+  chat:'M21 11a8 8 0 0 1-8 8H7l-5 3 2-6a8 8 0 1 1 17-5 M8 10h8 M8 14h5',
+  tool:'M14 6a5 5 0 0 0-6 6l-5 5a2 2 0 0 0 3 3l5-5a5 5 0 0 0 6-6l-3 3-3-3z',
   settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z'
 };
-document.querySelectorAll('[data-icon]').forEach(node => {
+function inlineIcon(name) {
+  const node = el('span', null, 'inline-icon');
+  node.setAttribute('aria-hidden', 'true');
+  node.dataset.icon = name;
+  drawIcon(node);
+  return node;
+}
+function drawIcon(node) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.6'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true');
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', icons[node.dataset.icon]); svg.append(path); node.append(svg);
-});
+}
+document.querySelectorAll('[data-icon]').forEach(drawIcon);

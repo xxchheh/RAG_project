@@ -1189,3 +1189,9 @@ a { color:var(--ink); }
 .attention-panel summary { color:var(--secondary); }
 .reference-preview { background:#fafaf9; }
 @media(max-width:760px) { .wiki-directory { padding-left:8px; padding-right:8px; } .wiki-detail h3 { font-size:21px; } }
+
+/* Decorative icons keep the visible action labels and accessible names intact. */
+.inline-icon { display:inline-flex; width:16px; height:16px; flex-shrink:0; vertical-align:-3px; margin-right:8px; color:inherit; pointer-events:none; }
+.inline-icon svg { display:block; width:100%; height:100%; }
+h2>.inline-icon { width:20px; height:20px; }
+.view-section>h3>.inline-icon { color:var(--secondary); }

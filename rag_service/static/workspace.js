@@ -69,7 +69,7 @@ async function loadKb() {
 }
 async function loadDocuments() { const kb = state.kb; const docs = await api('/admin/documents?kb_id=' + encodeURIComponent(kb)); if (kb !== state.kb) return; state.documents = docs; renderDocuments(); }
 function renderDocuments() {
-  $('category-title').textContent = state.category === 'rules' ? '规则文档' : '参考资料'; $('upload-open').textContent = state.category === 'rules' ? '上传规则文档' : '上传参考资料';
+  $('category-title').textContent = state.category === 'rules' ? '规则文档' : '参考资料'; $('upload-open').textContent = state.category === 'rules' ? '上传规则文档' : '上传参考资料'; $('upload-open').prepend(inlineIcon('upload'));
   const list = $('document-list'), term = $('document-filter').value.trim().toLowerCase(); list.replaceChildren();
   const docs = state.documents.filter(doc=>documentType(doc) === state.category && (doc.title + ' ' + (doc.external_id || '')).toLowerCase().includes(term));
   $('document-count').textContent = docs.length + ' 份文档';
