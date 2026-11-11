@@ -409,9 +409,15 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
             raise StoreError('该发布版本中不存在此知识条目',404)
         return {'release_id':rel['id'],'item':entry}
 
+    from .knowledge_fusion.routes import install as install_fusion
+    install_fusion(app, store, embedder, get_model, admin_auth)
+
     static=Path(__file__).parent/'static'
     app.mount('/static', StaticFiles(directory=static), name='static')
     @app.get('/',include_in_schema=False)
     def home():
         return FileResponse(static/'index.html')
+    @app.get('/fusion', include_in_schema=False)
+    def fusion_home():
+        return FileResponse(static/'fusion.html')
     return app

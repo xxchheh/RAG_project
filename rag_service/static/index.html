@@ -10,6 +10,7 @@
     <button data-tab="documents" data-category="rules" aria-selected="false"><span class="nav-icon" data-icon="check"></span>规则文档</button>
     <button data-tab="search" aria-selected="false"><span class="nav-icon" data-icon="search"></span>知识问答</button>
     <button data-tab="wiki" aria-selected="false"><span class="nav-icon" data-icon="book"></span>专业规则</button>
+    <a href="/fusion" id="fusion-entry" class="hidden">知识抽取与融合</a>
   </nav>
   <div class="sidebar-bottom"><a href="/docs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="book"></span>接口文档 ↗</a><button id="open-settings" type="button"><span class="nav-icon" data-icon="settings"></span>连接设置<span id="connection-state" class="badge">未连接</span></button></div>
 </aside>
@@ -77,4 +78,4 @@
 </dialog>
 <dialog id="audit-dialog"><div class="dialog-heading"><h3>审核记录</h3><button type="button" data-close="audit-dialog" aria-label="关闭">×</button></div><div id="audit-content"></div></dialog>
 <dialog id="unsaved-dialog"><h3>有未保存的修改</h3><p>切换前保存当前内容，或放弃本次修改。</p><div class="dialog-actions"><button id="unsaved-cancel" type="button">取消</button><button id="unsaved-discard" type="button">放弃修改</button><button id="unsaved-save" type="button" class="primary">保存并切换</button></div></dialog>
-<dialog id="batch-dialog" class="batch-dialog"><div class="dialog-heading"><h3>批量审核</h3><button type="button" data-close="batch-dialog" aria-label="关闭">×</button></div><p>审核所选条目的说明、判据和关联来源，统一入库。</p><label class="check-row"><input id="batch-all" type="checkbox">全选可处理条目</label><div id="batch-rows"></div><label>审核意见（选填）<textarea id="batch-note" maxlength="2000"></textarea></label><p id="batch-error" role="alert"></p><div class="dialog-actions"><button type="button" data-close="batch-dialog">取消</button><button id="batch-confirm" class="primary" type="button" disabled>审核并生效所选 0 条</button></div></dialog></body></html>
+<dialog id="batch-dialog" class="batch-dialog"><div class="dialog-heading"><h3>批量审核</h3><button type="button" data-close="batch-dialog" aria-label="关闭">×</button></div><p>审核所选条目的说明、判据和关联来源，统一入库。</p><label class="check-row"><input id="batch-all" type="checkbox">全选可处理条目</label><div id="batch-rows"></div><label>审核意见（选填）<textarea id="batch-note" maxlength="2000"></textarea></label><p id="batch-error" role="alert"></p><div class="dialog-actions"><button type="button" data-close="batch-dialog">取消</button><button id="batch-confirm" class="primary" type="button" disabled>审核并生效所选 0 条</button></div></dialog><script src="/static/fusion-entry.js" defer></script></body></html>

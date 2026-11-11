@@ -201,3 +201,117 @@ class Error(Output):
 ERROR_CODES = {400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN',
                404: 'NOT_FOUND', 409: 'CONFLICT', 422: 'VALIDATION_ERROR'}
 ERROR_RESPONSES = {status: {'model': Error} for status in (*ERROR_CODES, 500)}
+
+# Administrator-only fusion contracts are additive and independent of Agent rules.
+from .knowledge_fusion.schema import ClaimDraft, Judgment, Concept as FusionConcept, Topic as FusionTopic, Article, Evidence
+
+class FusionFeature(Output):
+    enabled: bool
+
+class FusionProject(Output):
+    id: str
+    name: str
+    created_at: str
+
+class FusionRun(Output):
+    checkpoints: dict[str, bool]
+    id: str
+    project_id: str
+    status: str
+    stage: str
+    created_at: str
+    error: str | None
+    top_k: int
+    same_document: bool
+    profile: dict
+    pending_topic: str | None
+
+class FusionDocument(Output):
+    document_id: str
+    kb_id: str
+    title: str
+    revision: int
+    edit_version: int
+    file_hash: str
+    file_name: str
+    parser_version: str
+
+class FusionSpan(Output):
+    id: str
+    document_id: str
+    block_id: str
+    text: str
+    corrected_text: str
+    start: int
+    end: int
+    section: str
+    page: int | None
+    locator: str
+    bbox: list[dict]
+    extraction: str
+    excluded: bool
+    table_header: str
+
+class FusionClaim(ClaimDraft):
+    id: str
+    document_id: str
+
+class FusionCandidate(Output):
+    id: str
+    claim_a: str
+    claim_b: str
+    similarity: float
+
+class FusionRelation(Judgment):
+    id: str
+    claim_a: str
+    claim_b: str
+    similarity: float
+
+class FusionKnowledge(Output):
+    id: str
+    concept: str
+    knowledge_type: str
+    statement: str
+    conditions: list[str]
+    qualifiers: list[str]
+    claim_ids: list[str]
+    evidence: list[Evidence]
+
+class FusionSummary(Article):
+    id: str
+    topic_id: str
+    evidence: list[FusionSpan]
+
+class FusionEvaluation(Output):
+    documents: int
+    raw_claims: int
+    candidate_pairs: int
+    relation_counts: dict[str, int]
+    merged_groups: int
+    merged_claim_reduction: int
+    canonical_knowledge: int
+    traceable_ratio: float | None
+    labeled_pairs: int
+    true_positive: int
+    false_positive: int
+    false_negative: int
+    precision: float | None
+    recall: float | None
+    f1: float | None
+    evaluation_scope: str
+
+class FusionLabel(Output):
+    claim_a: str
+    claim_b: str
+    relation: str
+
+class FusionAnnotation(Output):
+    claim_a: str
+    claim_b: str
+    statement_a: str
+    statement_b: str
+    document_a: str
+    document_b: str
+    prediction: str | None
+    relation: str | None = None

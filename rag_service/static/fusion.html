@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>知识抽取与融合</title><link rel="stylesheet" href="/static/styles.css"><link rel="stylesheet" href="/static/fusion.css"><script src="/static/fusion.js" defer></script></head>
+<body>
+<aside class="sidebar"><a class="brand" href="/"><span class="brand-mark">K</span><strong>专业知识库</strong></a><nav class="tabs"><a href="/">返回 RAG 工作台</a><strong>知识抽取与融合</strong><button data-view="project">项目与运行</button><button data-view="raw">原始知识与关系</button><button data-view="knowledge">统一知识与主题</button><button data-view="summary">专题与评价</button></nav></aside>
+<main><header class="topbar"><strong>多文档知识抽取与融合</strong><span>技术验证 Demo</span></header><div class="main-content">
+<p id="message" role="status" aria-live="polite"></p>
+<form id="connect" class="panel"><label>管理令牌<input id="fusion-token" type="password" autocomplete="off" required></label><button class="primary">连接</button></form>
+<section id="workspace" class="hidden"><div class="panel fusion-toolbar"><label>融合项目<select id="projects"></select></label><button id="create-project">新建项目</button><label>运行历史<select id="runs"></select></label><button id="refresh-fusion">刷新</button><button id="retry-fusion">恢复失败任务</button></div><div id="progress" class="panel" role="status"></div>
+<section id="view-project"><h2>项目与运行</h2><p>在各知识库上传资料并完成解析后，从这里跨库选择文档。运行固定所选版本，并保存原文证据快照。</p><div class="panel"><label>文档所在知识库<select id="source-kb"></select></label><div id="source-documents"></div><h3>已选文档</h3><div id="selected-documents"></div><label>跨文档 Top-K<input id="fusion-top-k" type="number" min="1" max="50" value="5"></label><label><input id="same-document" type="checkbox">同时检查同文档重复知识</label><button id="start-fusion" class="primary">抽取、融合并构建主题</button></div></section>
+<section id="view-raw" class="hidden"><h2>原始知识与关系</h2><label>筛选文档<select id="claim-document"></select></label><h3>原始知识单元</h3><p>勾选至多30条 Claim，可导出它们之间全部跨文档配对，用于检查召回遗漏。</p><div id="claims"></div><button id="export-subset">导出所选 Claim 全配对标注</button><h3>候选知识对与语义关系</h3><div id="relations"></div></section>
+<section id="view-knowledge" class="hidden"><h2>统一知识与主题</h2><h3>概念归一化</h3><div id="concepts"></div><h3>主题层级</h3><div id="topics"></div><h3>规范化知识</h3><div id="knowledge"></div></section>
+<section id="view-summary" class="hidden"><h2>专题与评价</h2><div id="metrics" class="panel"></div><div class="panel"><button id="export-labels">导出候选对标注 JSONL</button><label>导入已标注 JSONL<input id="import-labels" type="file" accept=".jsonl,.ndjson,.txt"></label><p>填写导出文件中的 relation 字段。指标只针对人工标注配对，来源链完整率用于追溯检查。</p></div><div class="panel"><label>专题主题<select id="summary-topic"></select></label><button id="generate-summary" class="primary">生成带引用专题</button></div><div id="summaries"></div></section>
+</section></div></main></body></html>

@@ -78,3 +78,7 @@ python3.12 -m venv .venv-docling
 ```
 
 公开 Agent 接口及规则能力由 `tests/test_agent_api_contract.py` 和固定契约基线约束。维护时遵守 `AGENTS.md`，不得用覆盖基线的方式掩盖不兼容变更。
+
+## 多文档知识抽取与融合
+
+管理员可通过 `/fusion` 使用独立融合项目，跨知识库选择已解析文档，查看原始知识、关系判断、规范化知识、主题和带引用专题。使用 `RAG_FUSION_ENABLED=true` 启用，运行结果保存到独立 SQLite 数据库。安装、接口、标注评价和验证局限见 [知识抽取与融合说明](docs/knowledge_fusion.md)。
