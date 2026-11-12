@@ -50,6 +50,9 @@ class ChatStore:
                 for turn in session['turns']:
                     if turn['status'] == 'pending':
                         turn.update(status='failed', error='服务重启中断了本轮请求，请重试。')
+                        if turn.get('analysis'):
+                            turn['analysis'].update(status='failed', stage='failed', error=turn['error'],
+                                                    outcome='本轮证据核对尚未完成，可重试。')
                         recovered = True
                 if recovered:
                     self.write(c, row['owner'], session)
@@ -132,6 +135,7 @@ class ChatStore:
                 if turn['query'] != query:
                     raise StoreError('重试问题与原问题不一致', 409)
                 turn.update(request_id=request_id, status='pending', result=None, error=None)
+                turn.pop('analysis', None)
             else:
                 turn = {'id': uuid4().hex, 'request_id': request_id, 'query': query, 'status': 'pending', 'result': None, 'error': None}
                 if not session['turns'] and session['automatic_title']:
@@ -140,6 +144,15 @@ class ChatStore:
             self.write(c, owner, session)
         return session, True
 
+    def update_analysis(self, owner, identifier, request_id, analysis):
+        with self.connection() as c:
+            session = self.read(c, owner, identifier)
+            turn = session['turns'][-1]
+            if turn['request_id'] != request_id or turn['status'] != 'pending':
+                raise StoreError('会话状态已变化，请重新读取', 409)
+            turn['analysis'] = analysis
+            self.write(c, owner, session)
+
     def finish(self, owner, identifier, request_id, result=None, error=None):
         with self.connection() as c:
             session = self.read(c, owner, identifier)
@@ -147,5 +160,8 @@ class ChatStore:
             if turn['request_id'] != request_id or turn['status'] != 'pending':
                 raise StoreError('会话状态已变化，请重新读取', 409)
             turn.update(status='failed' if error else 'succeeded', result=result, error=error)
+            if error and turn.get('analysis'):
+                turn['analysis'].update(status='failed', stage='failed', error=error,
+                                        outcome='本轮证据核对尚未完成，可重试。')
             self.write(c, owner, session)
         return session

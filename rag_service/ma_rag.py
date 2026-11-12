@@ -123,7 +123,7 @@ def save_trace(trace_dir, trace):
 
 
 def answer_with_ma_rag(query, found, model_factory, retrieve_more, history=None,
-                       retrieval_query=None, trace_dir=None, max_items=5):
+                       retrieval_query=None, trace_dir=None, max_items=5, on_progress=None):
     """Three grounded candidates, one review, up to two searches, one final answer.
 
     retrieve_more receives only a query. The caller closes over the fixed KB,
@@ -134,6 +134,10 @@ def answer_with_ma_rag(query, found, model_factory, retrieve_more, history=None,
              'retrieval_query': retrieval_query or query, 'status': 'processing',
              'model_calls': 0, 'supplementary_searches': [], 'candidate_count': 3,
              'initial_evidence_ids': [hit['id'] for hit in found['items']]}
+    def report(stage):
+        if on_progress is not None:
+            on_progress(stage, trace)
+
     try:
         initial = found['items']
         if not initial:
@@ -155,6 +159,7 @@ def answer_with_ma_rag(query, found, model_factory, retrieve_more, history=None,
         trace['model_calls'] += 1
         review = review_candidates(retrieval_query or query, candidates, initial, model_factory)
         trace['review'] = review.model_dump()
+        report('conflict_detected')
 
         supplement_batches = []
         seen_queries = {(retrieval_query or query).strip().casefold()}
@@ -166,11 +171,15 @@ def answer_with_ma_rag(query, found, model_factory, retrieve_more, history=None,
                 seen_queries.add(key)
                 search_record = {'query': search_query, 'evidence_ids': []}
                 trace['supplementary_searches'].append(search_record)
+                report('searching')
                 response = retrieve_more(search_query)
                 if response['kb_id'] != found['kb_id'] or response['release_id'] != found['release_id']:
                     raise ValueError('MA_RAG 补充检索的知识库或发布版本不一致。')
                 supplement_batches.append(response['items'])
                 search_record['evidence_ids'] = [item['id'] for item in response['items']]
+                search_record['items'] = response['items']
+                search_record['status'] = 'completed'
+                report('evidence_ready')
 
         # Give both supplementary queries a chance to contribute within top_k.
         supplements = []
@@ -189,6 +198,7 @@ def answer_with_ma_rag(query, found, model_factory, retrieve_more, history=None,
         else:
             trace['stop_reason'] = 'single_supplement_pass'
         trace['model_calls'] += 1
+        report('finalizing')
         result = generate_answer(
             query, hits, model_factory, history, retrieval_query,
             working_context={
@@ -202,9 +212,11 @@ def answer_with_ma_rag(query, found, model_factory, retrieve_more, history=None,
             },
         )
         trace.update(status=result['status'], answer=result['answer'], citations=result['citations'])
+        report('completed')
         return {**result, 'items': hits}
     except Exception as error:
         trace.update(status='failed', error=str(error))
+        report('failed')
         raise
     finally:
         trace['finished_at'] = now()

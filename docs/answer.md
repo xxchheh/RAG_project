@@ -62,6 +62,8 @@
 
 会话含 id、title、kb_id、release_id、device_type、创建与更新时间以及 turns。每轮含 id、request_id、query、status、result、error，状态为 pending、succeeded 或 failed。result 沿用聊天回答结构，包含回答、引用、检索片段及模型信息。生成失败时返回持久化的 failed 轮次，调用方必须检查该状态。
 
+启用 MA_RAG 后，有实质冲突的轮次可附加 `analysis`，用于展示候选、分歧和补查过程。无冲突时省略该字段。调用方可通过既有会话 GET 接口读取处理中状态，完整字段及演示步骤见 [冲突过程展示](ma_show.md)。
+
 原 `POST /api/v1/chat` 仍可独立调用，接受可选 history，不保存会话。首次提问检索后生成，追问增加一次模型问题改写，再检索并生成。模型使用最近 6 轮、合计 12,000 字的上下文，历史用于理解问题，事实依据来自本轮固定版本的知识。
 
 ## 验证记录

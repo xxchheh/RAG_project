@@ -45,14 +45,29 @@ function applySession(session) {
   $('chat-progress').textContent = chatBusy ? '正在检索并生成回答…' : '';
   renderChat(); renderSessions();
   clearTimeout(chatPoll);
-  if (chatBusy) {
-    const id = session.id, request = chatRequest;
-    chatPoll = setTimeout(action(async()=>{
-      const current = await api('/chat/sessions/'+encodeURIComponent(id));
-      if (request === chatRequest && id === conversation.id) applySession(current);
-    }), 2000);
-  }
+  if (chatBusy) scheduleChatPoll(session.id, chatRequest, session.turns.at(-1).request_id);
 }
+function scheduleChatPoll(id, request, requestId) {
+  clearTimeout(chatPoll);
+  chatPoll = setTimeout(async () => {
+    try {
+      const current = await api('/chat/sessions/' + encodeURIComponent(id));
+      if (request !== chatRequest || id !== conversation.id) return;
+      const turn = current.turns.find(item => item.request_id === requestId);
+      const local = conversation.turns.find(item => item.request_id === requestId);
+      if (!turn || (local?.status !== 'pending' && turn.status === 'pending')) {
+        if (chatBusy) scheduleChatPoll(id, request, requestId);
+        return;
+      }
+      applySession(current);
+    } catch (error) {
+      if (request !== chatRequest || id !== conversation.id) return;
+      $('chat-progress').textContent = '进度读取暂时失败，正在重试…';
+      scheduleChatPoll(id, request, requestId);
+    }
+  }, 1000);
+}
+
 async function openSession(id) {
   cancelChatView(); const load = ++sessionLoad;
   const session = await api('/chat/sessions/'+encodeURIComponent(id));
@@ -76,12 +91,15 @@ async function syncChat() {
 function renderChat() {
   $('chat-title').textContent = conversation.title || '新对话';
   $('rename-chat').disabled = !conversation.id; $('delete-chat').disabled = !conversation.id;
+  rememberMAOpenStates();
   const root = $('chat-messages'); root.replaceChildren();
   if (!conversation.turns.length) empty(root, '从一个问题开始，可以继续追问原因、措施，或让回答更简洁。');
   for (const [index, turn] of conversation.turns.entries()) {
     const user = el('article', null, 'chat-message chat-user'); user.append(el('strong', '你'), el('p', turn.query, 'preserve-lines')); root.append(user);
     const assistant = el('article', null, 'chat-message chat-assistant'); assistant.append(el('strong', '知识助手'));
+    if (turn.analysis) assistant.append(renderMAAnalysis(turn.analysis, conversation.id + ':' + (turn.id || turn.request_id || index)));
     if (turn.result) {
+      if (turn.analysis) assistant.append(el('h4', '最终回答'));
       const result = turn.result;
       assistant.append(el('div', result.answer, 'chat-answer preserve-lines'));
       if (result.status === 'clarification_required') assistant.append(badge('请补充说明'));
@@ -96,7 +114,7 @@ function renderChat() {
       assistant.append(evidence, technicalDetails({'检索问题':result.retrieval_query || '本轮需要澄清', '发布版本':result.release_id, '回答模型':result.model_info?.model || '未调用生成模型'}));
     } else if (turn.error) {
       assistant.append(el('p', turn.error, 'chat-error'), button(index === conversation.turns.length-1 ? '重试本轮' : '本轮未完成', ()=>sendChat(index)));
-    } else assistant.append(el('p', '正在检索并生成回答…', 'muted'));
+    } else if (!turn.analysis) assistant.append(el('p', '正在检索并生成回答…', 'muted'));
     if (index !== conversation.turns.length-1 && turn.error) assistant.querySelector('button').disabled = true;
     root.append(assistant);
   }
@@ -124,9 +142,10 @@ async function sendChat(retryIndex) {
     if (retry) body.retry_turn_id = conversation.turns[retryIndex].id;
     const response = api('/chat/sessions/'+id+'/messages', {method:'POST',body});
     $('query').value = '';
-    const pending = {query:queryText, status:'pending', result:null, error:null};
+    const pending = {query:queryText, request_id:body.request_id, id:retry ? body.retry_turn_id : undefined, status:'pending', result:null, error:null};
     if (retry) conversation.turns[retryIndex] = pending; else conversation.turns.push(pending);
     renderChat();
+    scheduleChatPoll(id, request, body.request_id);
     const session = await response;
     if (request !== chatRequest || id !== conversation.id) return;
     applySession(session); await refreshSessions();
@@ -184,3 +203,5 @@ for (const id of ['query-release','query-release-id','query-device']) $(id).addE
   resetChat(); $('query-release-id').value = scope.release_id; $('query-device').value = scope.device_type;
 });
 renderChat();
+
+initializeMADemo();

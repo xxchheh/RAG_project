@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, BackgroundTasks, Depends, File, Form, UploadFile, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -115,7 +115,7 @@ class SessionMessage(Input):
     top_k: int = Field(default=5, ge=1, le=50)
 
 
-def create_app(settings=None, embedder=None, model=None, model_factory=None, answer_model_factory=None):
+def create_app(settings=None, embedder=None, model=None, model_factory=None, answer_model_factory=None, presentation_demo=False):
     settings = settings or Settings.from_env()
     from .ma_rag import enabled_from_env
     ma_rag_enabled = enabled_from_env()
@@ -423,8 +423,7 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
         result = generate_answer(body.query, found['items'], get_answer_model)
         return {**found, **result}
 
-    @app.post(prefix+'/chat', dependencies=read, response_model=wire.ChatAnswer, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
-    def chat(body: ChatQuery):
+    def run_chat(body, on_progress=None):
         from .chat import bounded_history, resolve_question
         from .generated_answers import generate_answer
         # Resolve the release before invoking a model, including clarification turns.
@@ -443,10 +442,14 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
                 return retrieve(Query(kb_id=body.kb_id, release_id=rel['id'], query=search_query,
                                       device_type=body.device_type, top_k=body.top_k))
             result = answer_with_ma_rag(body.query, found, get_answer_model, retrieve_more,
-                history, question, trace_dir=settings.data_dir/'ma_rag', max_items=body.top_k)
+                history, question, trace_dir=settings.data_dir/'ma_rag', max_items=body.top_k, on_progress=on_progress)
         else:
             result = generate_answer(body.query, found['items'], get_answer_model, history, question)
         return {**found, **result, 'retrieval_query': question}
+
+    @app.post(prefix+'/chat', dependencies=read, response_model=wire.ChatAnswer, response_model_exclude_unset=True, responses=wire.ERROR_RESPONSES)
+    def chat(body: ChatQuery):
+        return run_chat(body)
 
     @app.get(prefix+'/chat/sessions', response_model=list[wire.ConversationSummary], responses=wire.ERROR_RESPONSES)
     def list_sessions(token=Depends(read_auth)):
@@ -480,10 +483,15 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
             return session
         history = [{'query': turn['query'], 'answer': turn['result']['answer']} for turn in session['turns'][:-1]
                    if turn['result'] and turn['result']['status'] != 'insufficient_evidence']
+        def show_progress(stage, trace):
+            from .ma_presentation import conflict_presentation
+            analysis = conflict_presentation(stage, trace, demonstration=presentation_demo)
+            if analysis is not None:
+                chats.update_analysis(owner, session_id, body.request_id, analysis)
         try:
-            result = chat(ChatQuery(kb_id=session['kb_id'], release_id=session['release_id'],
+            result = run_chat(ChatQuery(kb_id=session['kb_id'], release_id=session['release_id'],
                                     device_type=session['device_type'], query=body.query,
-                                    history=history[-6:], top_k=body.top_k))
+                                    history=history[-6:], top_k=body.top_k), on_progress=show_progress)
             result = wire.ChatAnswer.model_validate(result).model_dump(exclude_unset=True)
         except Exception as error:
             message = str(error) if isinstance(error, (ValueError, StoreError)) else '本轮生成失败，请重试或检查模型配置。'
@@ -510,5 +518,8 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
     app.mount('/static', StaticFiles(directory=static), name='static')
     @app.get('/',include_in_schema=False)
     def home():
+        if presentation_demo:
+            html = (static/'index.html').read_text(encoding='utf-8')
+            return HTMLResponse(html.replace('<body>', '<body data-ma-demo="true">'))
         return FileResponse(static/'index.html')
     return app

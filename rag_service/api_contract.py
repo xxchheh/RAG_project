@@ -222,6 +222,41 @@ class ConversationSummary(Output):
     updated_at: str
 
 
+class AnalysisCandidate(Output):
+    id: int
+    summary: str
+    citations: list[Citation]
+
+
+class AnalysisEvidence(Output):
+    knowledge_id: str
+    text: str
+    source: Source
+
+
+class AnalysisSearch(Output):
+    query: str
+    status: Literal['pending', 'completed']
+    found_count: int
+    new_count: int
+    evidence: list[AnalysisEvidence]
+
+
+class ConflictAnalysis(Output):
+    status: Literal['processing', 'completed', 'failed']
+    stage: Literal['conflict_detected', 'searching', 'evidence_ready', 'finalizing', 'completed', 'failed']
+    candidates: list[AnalysisCandidate]
+    conflicts: list[str]
+    ranking: list[int]
+    review_summary: str
+    searches: list[AnalysisSearch]
+    new_evidence_count: int
+    model_calls: int
+    outcome: str
+    error: str | None
+    demonstration: bool = False
+
+
 class ConversationTurn(Output):
     id: str
     request_id: str
@@ -229,6 +264,7 @@ class ConversationTurn(Output):
     status: Literal['pending', 'succeeded', 'failed']
     result: ChatAnswer | None
     error: str | None
+    analysis: ConflictAnalysis | None = None
 
 
 class Conversation(ConversationSummary):
