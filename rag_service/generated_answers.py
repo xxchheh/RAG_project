@@ -4,12 +4,8 @@ import json
 import re
 
 
-def generate_answer(query, hits, model_factory, history=None, retrieval_query=None):
-    insufficient = {'status': 'insufficient_evidence', 'answer': '已发布知识中没有足够依据回答这个问题。', 'citations': [],
-                    'mode': 'grounded_generation', 'model_info': {}}
-    if not hits:
-        return insufficient
-    # Bound the prompt, and validate quotes against exactly what the model saw.
+def evidence_for_prompt(hits):
+    """Use the same evidence budget for generation, review and quote validation."""
     evidence, remaining = [], 24000
     for hit in hits:
         if remaining <= 0:
@@ -17,6 +13,16 @@ def generate_answer(query, hits, model_factory, history=None, retrieval_query=No
         text = hit['text'][:min(6000, remaining)]
         evidence.append({'knowledge_id': hit['id'], 'text': text})
         remaining -= len(text)
+    return evidence
+
+
+def generate_answer(query, hits, model_factory, history=None, retrieval_query=None, working_context=None):
+    insufficient = {'status': 'insufficient_evidence', 'answer': '已发布知识中没有足够依据回答这个问题。', 'citations': [],
+                    'mode': 'grounded_generation', 'model_info': {}}
+    if not hits:
+        return insufficient
+    # Bound the prompt, and validate quotes against exactly what the model saw.
+    evidence = evidence_for_prompt(hits)
     model = model_factory()
     if model is None:
         raise ValueError('请配置回答模型后生成回答；也可先查看检索依据。')
@@ -33,6 +39,15 @@ def generate_answer(query, hits, model_factory, history=None, retrieval_query=No
          '"citations":[{"knowledge_id":"证据编号","quote":"对应连续原文"}]}]}。'
          '最多8段，每段最多2000字，每段1至5条引用，不要输出Markdown代码围栏以外的解释。'},
         {'role': 'user', 'content': json.dumps({'question': query, 'evidence': evidence, 'conversation_context': history or [], 'retrieval_question': retrieval_query or query}, ensure_ascii=False)}]
+    if working_context is not None:
+        prompt[0]['content'] += (
+            'working_context是本轮候选和复核意见，仅用于定位分歧与组织回答，不能当作事实证据。'
+            '所有最终事实与引用仍须来自evidence。候选阶段按focus侧重点检查同一问题，最多2段，每段不超过800字。'
+            '最终阶段结合新增证据重新检查复核意见；依据未解决的争议须明确说明，不能按候选多数强行下结论。'
+        )
+        payload = json.loads(prompt[-1]['content'])
+        payload['working_context'] = working_context
+        prompt[-1]['content'] = json.dumps(payload, ensure_ascii=False)
     message = model.complete(prompt)
     config = getattr(model, 'config', None)
     info = {'provider': getattr(config, 'provider', 'custom'), 'model': getattr(config, 'model', 'configured')}

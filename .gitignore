@@ -17,3 +17,7 @@ data/rag_work/
 *.db-journal
 
 .venv-docling/
+
+# Runtime MA-RAG analysis records (also covers custom data roots).
+**/ma_rag/*.json
+**/ma_rag/*.tmp

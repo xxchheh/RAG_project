@@ -117,6 +117,8 @@ class SessionMessage(Input):
 
 def create_app(settings=None, embedder=None, model=None, model_factory=None, answer_model_factory=None):
     settings = settings or Settings.from_env()
+    from .ma_rag import enabled_from_env
+    ma_rag_enabled = enabled_from_env()
     store = Store(settings.data_dir, recover_tasks=True)
     from .chat_store import ChatStore
     chats = ChatStore(settings.data_dir)
@@ -435,7 +437,15 @@ def create_app(settings=None, embedder=None, model=None, model_factory=None, ans
                     'mode': 'grounded_generation', 'model_info': {}, 'retrieval_query': None}
         found = retrieve(Query(kb_id=body.kb_id, release_id=rel['id'], query=question,
                                device_type=body.device_type, top_k=body.top_k))
-        result = generate_answer(body.query, found['items'], get_answer_model, history, question)
+        if ma_rag_enabled:
+            from .ma_rag import answer_with_ma_rag
+            def retrieve_more(search_query):
+                return retrieve(Query(kb_id=body.kb_id, release_id=rel['id'], query=search_query,
+                                      device_type=body.device_type, top_k=body.top_k))
+            result = answer_with_ma_rag(body.query, found, get_answer_model, retrieve_more,
+                history, question, trace_dir=settings.data_dir/'ma_rag', max_items=body.top_k)
+        else:
+            result = generate_answer(body.query, found['items'], get_answer_model, history, question)
         return {**found, **result, 'retrieval_query': question}
 
     @app.get(prefix+'/chat/sessions', response_model=list[wire.ConversationSummary], responses=wire.ERROR_RESPONSES)
